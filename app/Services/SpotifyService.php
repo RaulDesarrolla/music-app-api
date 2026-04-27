@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
-use SpotifyWebAPI\SpotifyWebApi;
-use SpotifyWebAPI\SpotifyWebApiSession;
+use SpotifyWebAPI\Session;
+use SpotifyWebAPI\SpotifyWebAPI;
 use SpotifyWebAPI\SpotifyWebApiAuthException;
 
 class SpotifyService
@@ -15,13 +15,13 @@ class SpotifyService
         $clientId = env('SPOTIFY_CLIENT_ID');
         $clientSecret = env('SPOTIFY_CLIENT_SECRET');
 
-        $session = new SpotifyWebApiSession(
+        $session = new Session(
             $clientId,
             $clientSecret,
             'http://localhost/callback'
         );
 
-        $this->api = new SpotifyWebApi();
+        $this->api = new SpotifyWebAPI();
         $this->api->setClientId($clientId);
         $this->api->setClientSecret($clientSecret);
 
