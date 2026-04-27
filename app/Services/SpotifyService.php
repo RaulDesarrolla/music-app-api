@@ -21,18 +21,16 @@ class SpotifyService
             'http://localhost/callback'
         );
 
-        $this->api = new SpotifyWebAPI();
-        $this->api->setClientId($clientId);
-        $this->api->setClientSecret($clientSecret);
-
         // Get an access token
         try {
             $session->requestCredentialsToken();
             $accessToken = $session->getAccessToken();
-            $this->api->setAccessToken($accessToken);
         } catch (SpotifyWebApiAuthException $e) {
             throw new \Exception('Failed to authenticate with Spotify API');
         }
+
+        $this->api = new SpotifyWebAPI();
+        $this->api->setAccessToken($accessToken);
     }
 
     public function searchSongs(string $query): array
