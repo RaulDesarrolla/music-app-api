@@ -33,7 +33,7 @@ class SpotifyService
         $this->api->setAccessToken($accessToken);
     }
 
-    public function searchSongs(string $query): array
+    public function searchSongs(string $query)
     {
         return $this->api->search($query, 'track');
     }
