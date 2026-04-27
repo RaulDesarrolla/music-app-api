@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\SpotifyController;
 
 Route::get('/status', function () {
     return response()->json([
@@ -9,3 +10,5 @@ Route::get('/status', function () {
         'status' => 'ready'
     ]);
 });
+
+Route::get('/search', [SpotifyController::class, 'search']);
