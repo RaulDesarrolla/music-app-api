@@ -7,6 +7,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "jwilsson/spotify-web-api-php": "^7.1",
         "kreait/laravel-firebase": "^7.1",
         "laravel/framework": "^13.0",
         "laravel/sanctum": "^4.0",
@@ -14,6 +15,7 @@
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
+        "laravel/breeze": "^2.4",
         "laravel/pail": "^1.2.5",
         "laravel/pint": "^1.27",
         "laravel/sail": "^1.56",
