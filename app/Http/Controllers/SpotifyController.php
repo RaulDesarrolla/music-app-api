@@ -27,11 +27,11 @@ class SpotifyController extends Controller
 
             // Extract the desired information from the results
             $formattedResults = [];
-            foreach ($results['tracks']['items'] as $track) {
+            foreach ($results->tracks->items as $track) {
                 $formattedResults[] = [
-                    'name' => $track['name'],
-                    'artist' => $track['artists'][0]['name'],
-                    'album_cover' => $track['album']['images'][0]['url'] ?? null,
+                    'name' => $track->name,
+                    'artist' => $track->artists[0]->name,
+                    'album_cover' => $track->album->images[0]->url ?? null,
                 ];
             }
 
