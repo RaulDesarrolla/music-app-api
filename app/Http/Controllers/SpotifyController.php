@@ -2,42 +2,59 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\SpotifyService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Auth;
+use App\Models\User;
 
 class SpotifyController extends Controller
 {
-    protected $spotifyService;
-
-    public function __construct(SpotifyService $spotifyService)
+    /**
+     * Redirige al usuario a la página de autorización de Spotify.
+     */
+    public function connect()
     {
-        $this->spotifyService = $spotifyService;
+        $url = 'https://accounts.spotify.com/authorize?' . http_build_query([
+            'client_id' => config('services.spotify.client_id'),
+            'redirect_uri' => config('services.spotify.redirect'),
+            'response_type' => 'code',
+            'scope' => 'user-read-private user-read-email user-top-read',
+        ]);
+
+        // Opción A: Redirección estándar de Laravel (intentar primero)
+        return redirect()->away($url);  
     }
 
-    public function search(Request $request)
+    /**
+     * Maneja la respuesta de Spotify (callback).
+     */
+    public function callback(Request $request)
     {
-        $query = $request->input('q', '');
+        // 1. Intercambiar el código por tokens
+        $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
+            'grant_type' => 'authorization_code',
+            'code' => $request->code,
+            'redirect_uri' => config('services.spotify.redirect'),
+            'client_id' => config('services.spotify.client_id'),
+            'client_secret' => config('services.spotify.client_secret'),
+        ]);
 
-        if (empty($query)) {
-            return response()->json(['error' => 'Search query is required'], 400);
-        }
+        $data = $response->json();
 
-        try {
-            $results = $this->spotifyService->searchSongs($query);
+        // 2. Obtener datos del perfil del usuario desde Spotify
+        $userProfile = Http::withToken($data['access_token'])
+            ->get('https://api.spotify.com/v1/me')
+            ->json();
 
-            // Extract the desired information from the results
-            $formattedResults = [];
-            foreach ($results->tracks->items as $track) {
-                $formattedResults[] = [
-                    'name' => $track->name,
-                    'artist' => $track->artists[0]->name,
-                    'album_cover' => $track->album->images[0]->url ?? null,
-                ];
-            }
+        // 3. Actualizar el usuario autenticado en nuestra DB de Aiven
+        $user = Auth::user();
+        $user->update([
+            'spotify_id' => $userProfile['id'],
+            'access_token' => $data['access_token'],
+            'refresh_token' => $data['refresh_token'],
+            'expires_at' => now()->addSeconds($data['expires_in']),
+        ]);
 
-            return response()->json($formattedResults);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
+        return redirect()->route('dashboard')->with('status', 'Spotify conectado correctamente.');
     }
 }
