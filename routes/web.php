@@ -10,13 +10,8 @@ Route::get('/', function () {
 
 Route::get('/spotify/connect', [SpotifyController::class, 'connect'])->name('spotify.connect');
 
-Route::middleware(['auth'])->group(function () {
-    // Ruta para iniciar la conexión
-
-    // Esta ruta DEBE coincidir con el Dashboard de Spotify
-    // Hemos añadido 'api/auth/callback' para cumplir con tu configuración
-    Route::get('/api/auth/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');
-});
+// Esta ruta DEBE coincidir con el Redirect URI: http://127.0.0.1:8000/spotify/callback
+Route::get('/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback')->withoutMiddleware(['web']);
 
 // Importación de las rutas de Breeze (Login, Registro, etc.)
 require __DIR__.'/auth.php';
