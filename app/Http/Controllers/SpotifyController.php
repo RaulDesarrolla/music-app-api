@@ -14,7 +14,6 @@ class SpotifyController extends Controller
      */
     public function connect()
     {
-        // config('services.spotify.redirect') debe apuntar a la URL con :8000
         $url = 'https://accounts.spotify.com/authorize?' . http_build_query([
             'client_id' => config('services.spotify.client_id'),
             'redirect_uri' => config('services.spotify.redirect'),
@@ -30,21 +29,21 @@ class SpotifyController extends Controller
      */
     public function callback(Request $request)
     {
-        // 1. Verificar inmediatamente si el usuario está autenticado
+        // 1. Verificar autenticación local
         if (!auth()->check()) {
-            return redirect()->route('login')->with('error', 'Tu sesión ha expirado. Por favor, inicia sesión de nuevo.');
+            return redirect()->route('login')->with('error', 'Tu sesión ha expirado.');
         }
 
         $user = auth()->user();
         $code = $request->query('code');
 
-        // 2. Si no hay código, redirigir al inicio para evitar el error de "code must be supplied"
+        // 2. Validar que recibimos el código de Spotify
         if (!$code) {
             return redirect()->route('spotify.connect')
-                ->with('error', 'No se recibió el código de autorización. Inténtalo de nuevo.');
+                ->with('error', 'No se recibió el código de autorización.');
         }
 
-        // 3. Petición POST a Spotify para obtener los tokens
+        // 3. Intercambio de código por Tokens
         $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
             'grant_type' => 'authorization_code',
             'code' => $code,
@@ -55,20 +54,49 @@ class SpotifyController extends Controller
 
         $data = $response->json();
 
-        // 4. Validar si la respuesta de Spotify fue exitosa
         if ($response->failed()) {
-            return response()->json([
-                'mensaje' => 'Error en la comunicación con Spotify',
-                'detalle' => $data
-            ], 400);
+            return response()->json(['error' => 'Fallo en tokens', 'detalle' => $data], 400);
         }
 
+        // 4. Guardar tokens y redirigir al Dashboard
+        // Usamos update para persistir los datos en Aiven
         $user->update([
             'access_token' => $data['access_token'],
             'refresh_token' => $data['refresh_token'] ?? null,
             'expires_at' => now()->addSeconds($data['expires_in']),
         ]);
 
-        return redirect('/dashboard');
+        // Redirigimos a la ruta nombrada 'dashboard'
+        return redirect()->route('dashboard')->with('status', 'Conectado a Spotify');
+    }
+
+    /**
+     * Obtiene y muestra el perfil del usuario en el Dashboard.
+     */
+    public function getProfile()
+    {
+        $user = auth()->user();
+
+        // Verificamos si tenemos un token antes de intentar la petición
+        if (!$user->access_token) {
+            return redirect()->route('spotify.connect');
+        }
+
+        $response = Http::withToken($user->access_token)
+            ->get('https://api.spotify.com/v1/me');
+
+        if ($response->failed()) {
+            return redirect('/')->with('error', 'Error al consultar Spotify.');
+        }
+
+        $profileData = $response->json();
+
+        // Opcional: Actualizar el nombre del usuario con su nombre real de Spotify
+        $user->update([
+            'name' => $profileData['display_name'] ?? $user->name,
+            'spotify_id' => $profileData['id'] ?? null,
+        ]);
+
+        return view('dashboard', ['profile' => $profileData]);
     }
 }
