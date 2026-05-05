@@ -17,12 +17,19 @@ Route::post('/logout', [LogoutController::class, 'logout'])->name('logout');
 // Rutas protegidas: El usuario DEBE estar logueado para conectar Spotify
 Route::middleware(['auth'])->group(function () {
 
+    Route::get('/connect-spotify', function () {
+        return view('spotify.prompt');
+    })->name('spotify.prompt');
+
     Route::get('/dashboard', [SpotifyController::class, 'getProfile'])->name('dashboard');
     
     Route::get('/spotify/connect', [SpotifyController::class, 'connect'])->name('spotify.connect');
 
     Route::get('/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');
 
+    Route::middleware(['spotify.check'])->group(function () {
+        Route::get('/dashboard', [SpotifyController::class, 'getProfile'])->name('dashboard');
+    });
 });
 
 // Importación de las rutas de Breeze

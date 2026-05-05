@@ -77,25 +77,19 @@ class SpotifyController extends Controller
     {
         $user = auth()->user();
 
-        // Verificamos si tenemos un token antes de intentar la petición
-        if (!$user->access_token) {
-            return redirect()->route('spotify.connect');
-        }
-
+        // Como el middleware ya aseguró que tenemos el token, 
+        // hacemos la petición directamente a Spotify.
         $response = Http::withToken($user->access_token)
             ->get('https://api.spotify.com/v1/me');
 
         if ($response->failed()) {
-            return redirect('/')->with('error', 'Error al consultar Spotify.');
+            // Si el token fallara (por ejemplo, si caducó), 
+            // podemos limpiar el token y pedir reconexión.
+            $user->update(['access_token' => null]);
+            return redirect()->route('spotify.prompt')->with('error', 'Sesión de Spotify caducada.');
         }
 
         $profileData = $response->json();
-
-        // Opcional: Actualizar el nombre del usuario con su nombre real de Spotify
-        $user->update([
-            'name' => $profileData['display_name'] ?? $user->name,
-            'spotify_id' => $profileData['id'] ?? null,
-        ]);
 
         return view('dashboard', ['profile' => $profileData]);
     }
