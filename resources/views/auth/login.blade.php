@@ -30,7 +30,7 @@
         <form action="{{ route('login') }}" method="POST">
             @csrf
             <label>Email:</label>
-            <input type="email" name="email" required value="prueba@ejemplo.com">
+            <input type="email" name="email" required value="test@example.com">
             
             <label>Contraseña:</label>
             <input type="password" name="password" required value="password123">

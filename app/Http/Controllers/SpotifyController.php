@@ -4,14 +4,27 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Auth;
-use App\Models\User;
+use App\Models\Post;
 
 class SpotifyController extends Controller
 {
     /**
-     * Redirige al usuario a la página de autorización de Spotify.
+     * MÉTODO AUXILIAR (Privado)
+     * Obtiene los datos del perfil de Spotify sin devolver una vista.
      */
+    private function getSpotifyProfileData()
+    {
+        $user = auth()->user();
+        $response = Http::withToken($user->access_token)
+            ->get('https://api.spotify.com/v1/me');
+
+        if ($response->failed()) {
+            return null;
+        }
+
+        return $response->json();
+    }
+
     public function connect()
     {
         $url = 'https://accounts.spotify.com/authorize?' . http_build_query([
@@ -24,12 +37,8 @@ class SpotifyController extends Controller
         return redirect()->away($url);
     }
 
-    /**
-     * Maneja la respuesta de Spotify (callback).
-     */
     public function callback(Request $request)
     {
-        // 1. Verificar autenticación local
         if (!auth()->check()) {
             return redirect()->route('login')->with('error', 'Tu sesión ha expirado.');
         }
@@ -37,13 +46,10 @@ class SpotifyController extends Controller
         $user = auth()->user();
         $code = $request->query('code');
 
-        // 2. Validar que recibimos el código de Spotify
         if (!$code) {
-            return redirect()->route('spotify.connect')
-                ->with('error', 'No se recibió el código de autorización.');
+            return redirect()->route('spotify.connect')->with('error', 'No se recibió el código.');
         }
 
-        // 3. Intercambio de código por Tokens
         $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
             'grant_type' => 'authorization_code',
             'code' => $code,
@@ -58,39 +64,106 @@ class SpotifyController extends Controller
             return response()->json(['error' => 'Fallo en tokens', 'detalle' => $data], 400);
         }
 
-        // 4. Guardar tokens y redirigir al Dashboard
-        // Usamos update para persistir los datos en Aiven
         $user->update([
             'access_token' => $data['access_token'],
             'refresh_token' => $data['refresh_token'] ?? null,
             'expires_at' => now()->addSeconds($data['expires_in']),
         ]);
 
-        // Redirigimos a la ruta nombrada 'dashboard'
         return redirect()->route('dashboard')->with('status', 'Conectado a Spotify');
     }
 
     /**
-     * Obtiene y muestra el perfil del usuario en el Dashboard.
+     * Muestra el Dashboard inicial
      */
     public function getProfile()
     {
-        $user = auth()->user();
+        $profileData = $this->getSpotifyProfileData();
 
-        // Como el middleware ya aseguró que tenemos el token, 
-        // hacemos la petición directamente a Spotify.
-        $response = Http::withToken($user->access_token)
-            ->get('https://api.spotify.com/v1/me');
-
-        if ($response->failed()) {
-            // Si el token fallara (por ejemplo, si caducó), 
-            // podemos limpiar el token y pedir reconexión.
-            $user->update(['access_token' => null]);
-            return redirect()->route('spotify.prompt')->with('error', 'Sesión de Spotify caducada.');
+        if (!$profileData) {
+            auth()->user()->update(['access_token' => null]);
+            return redirect()->route('spotify.prompt')->with('error', 'Sesión expirada.');
         }
 
-        $profileData = $response->json();
-
         return view('dashboard', ['profile' => $profileData]);
+    }
+
+    /**
+     * Realiza la búsqueda y devuelve la misma vista con resultados
+     */
+    public function search(Request $request)
+    {
+        $query = $request->input('query');
+        $profileData = $this->getSpotifyProfileData(); // Obtenemos el perfil para la vista
+
+        if (!$query) {
+            return redirect()->route('dashboard')->with('error', 'Escribe algo para buscar.');
+        }
+
+        $user = auth()->user();
+        $response = Http::withToken($user->access_token)
+            ->get('https://api.spotify.com/v1/search', [
+                'q' => $query,
+                'type' => 'track,album',
+                'limit' => 10
+            ]);
+
+        if ($response->failed()) {
+            return redirect()->route('dashboard')->with('error', 'Error en la búsqueda.');
+        }
+
+        $data = $response->json();
+        $results = [];
+
+        // Formatear canciones
+        if (isset($data['tracks'])) {
+            foreach ($data['tracks']['items'] as $track) {
+                $results[] = [
+                    'tipo' => 'cancion',
+                    'nombre' => $track['name'],
+                    'artista' => $track['artists'][0]['name'],
+                    'album' => $track['album']['name'],
+                    'portada' => $track['album']['images'][0]['url'] ?? null,
+                ];
+            }
+        }
+
+        // Formatear álbumes
+        if (isset($data['albums'])) {
+            foreach ($data['albums']['items'] as $album) {
+                $results[] = [
+                    'tipo' => 'album',
+                    'nombre' => $album['name'],
+                    'artista' => $album['artists'][0]['name'],
+                    'album' => $album['name'],
+                    'portada' => $album['images'][0]['url'] ?? null,
+                ];
+            }
+        }
+
+        return view('dashboard', [
+            'profile' => $profileData,
+            'results' => $results
+        ]);
+    }
+
+    public function storePost(Request $request)
+    {
+        $request->validate([
+            'track_name' => 'required|string',
+            'artist_name' => 'required|string',
+            'image_url' => 'required|url',
+        ]);
+
+        Post::create([
+            'user_id' => auth()->id(),
+            'track_name' => $request->track_name,
+            'artist_name' => $request->artist_name,
+            'album_name' => $request->album_name,
+            'image_url' => $request->image_url,
+            'comment' => $request->comment,
+        ]);
+
+        return redirect()->route('dashboard')->with('success', '¡Canción publicada con éxito!');
     }
 }

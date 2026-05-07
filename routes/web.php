@@ -29,7 +29,12 @@ Route::middleware(['auth'])->group(function () {
 
     Route::middleware(['spotify.check'])->group(function () {
         Route::get('/dashboard', [SpotifyController::class, 'getProfile'])->name('dashboard');
+        Route::get('/spotify/search', [SpotifyController::class, 'search'])->name('spotify.search');
     });
+});
+
+Route::middleware(['auth', 'spotify.check'])->group(function () {
+    Route::post('/posts', [SpotifyController::class, 'storePost'])->name('posts.store');
 });
 
 // Importación de las rutas de Breeze
