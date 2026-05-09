@@ -10,11 +10,14 @@ class SpotifyController extends Controller
 {
     /**
      * MÉTODO AUXILIAR (Privado)
-     * Obtiene los datos del perfil de Spotify sin devolver una vista.
      */
     private function getSpotifyProfileData()
     {
         $user = auth()->user();
+
+        if (!$user || !$user->access_token)
+            return null;
+
         $response = Http::withToken($user->access_token)
             ->get('https://api.spotify.com/v1/me');
 
@@ -25,6 +28,9 @@ class SpotifyController extends Controller
         return $response->json();
     }
 
+    /**
+     * Conecta con Spotify (Redirección externa necesaria)
+     */
     public function connect()
     {
         $url = 'https://accounts.spotify.com/authorize?' . http_build_query([
@@ -37,17 +43,19 @@ class SpotifyController extends Controller
         return redirect()->away($url);
     }
 
+    /**
+     * Callback de Spotify
+     */
     public function callback(Request $request)
     {
         if (!auth()->check()) {
-            return redirect()->route('login')->with('error', 'Tu sesión ha expirado.');
+            return response()->json(['error' => 'No autenticado'], 401);
         }
 
-        $user = auth()->user();
         $code = $request->query('code');
 
         if (!$code) {
-            return redirect()->route('spotify.connect')->with('error', 'No se recibió el código.');
+            return response()->json(['error' => 'No se recibió el código de Spotify'], 400);
         }
 
         $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
@@ -61,20 +69,21 @@ class SpotifyController extends Controller
         $data = $response->json();
 
         if ($response->failed()) {
-            return response()->json(['error' => 'Fallo en tokens', 'detalle' => $data], 400);
+            return response()->json(['error' => 'Fallo al obtener tokens', 'detalle' => $data], 400);
         }
 
-        $user->update([
+        auth()->user()->update([
             'access_token' => $data['access_token'],
             'refresh_token' => $data['refresh_token'] ?? null,
             'expires_at' => now()->addSeconds($data['expires_in']),
         ]);
 
-        return redirect()->route('dashboard')->with('status', 'Conectado a Spotify');
+        // Nota: Aquí podrías redirigir a la URL del frontend de tu compañero
+        return response()->json(['status' => 'success', 'message' => 'Spotify conectado correctamente']);
     }
 
     /**
-     * Muestra el Dashboard inicial
+     * Obtener perfil (JSON en lugar de view)
      */
     public function getProfile()
     {
@@ -82,22 +91,78 @@ class SpotifyController extends Controller
 
         if (!$profileData) {
             auth()->user()->update(['access_token' => null]);
-            return redirect()->route('spotify.prompt')->with('error', 'Sesión expirada.');
+            return response()->json(['error' => 'Sesión de Spotify expirada'], 401);
         }
 
-        return view('dashboard', ['profile' => $profileData]);
+        // Devolvemos los datos directamente
+        return response()->json([
+            'status' => 'success',
+            'profile' => $profileData
+        ]);
     }
 
     /**
-     * Realiza la búsqueda y devuelve la misma vista con resultados
+     * Alterna el seguimiento entre el usuario autenticado y otro usuario.
+     */
+    public function toggleFollow($id)
+    {
+        // 1. Obtenemos al usuario autenticado (el que hace la acción)
+        $user = auth()->user();
+
+        // 2. Verificamos que no intente seguirse a sí mismo
+        if ($user->id == $id) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No puedes seguirte a ti mismo.'
+            ], 400);
+        }
+
+        // 3. Usamos la función toggle() sobre la relación definida en el modelo User
+        // Esto añadirá o quitará el ID de la tabla 'follows' automáticamente
+        $result = $user->follows()->toggle($id);
+
+        // 4. Determinamos qué acción se realizó para avisar al frontend
+        $attached = count($result['attached']) > 0;
+
+        return response()->json([
+            'status' => 'success',
+            'is_following' => $attached,
+            'message' => $attached ? 'Ahora sigues a este usuario' : 'Has dejado de seguir a este usuario'
+        ]);
+    }
+
+    /**
+     * Obtiene las publicaciones de los usuarios seguidos y las propias.
+     */
+    public function getFeed()
+    {
+        $user = auth()->user();
+        $followedIds = $user->follows()->pluck('followed_id')->toArray();
+        $followedIds[] = $user->id;
+
+        $feed = Post::whereIn('user_id', $followedIds)
+            ->with('user:id,name')
+            ->withCount('likes')
+            ->withExists([
+                'likes as is_liked' => function ($query) use ($user) {
+                    $query->where('user_id', $user->id);
+                }
+            ])
+            ->latest()
+            ->paginate(15);
+
+        return response()->json($feed);
+    }
+
+    /**
+     * Búsqueda (JSON en lugar de view)
      */
     public function search(Request $request)
     {
         $query = $request->input('query');
-        $profileData = $this->getSpotifyProfileData(); // Obtenemos el perfil para la vista
 
         if (!$query) {
-            return redirect()->route('dashboard')->with('error', 'Escribe algo para buscar.');
+            return response()->json(['error' => 'Escribe algo para buscar'], 400);
         }
 
         $user = auth()->user();
@@ -109,13 +174,13 @@ class SpotifyController extends Controller
             ]);
 
         if ($response->failed()) {
-            return redirect()->route('dashboard')->with('error', 'Error en la búsqueda.');
+            return response()->json(['error' => 'Error en la búsqueda de Spotify'], 500);
         }
 
         $data = $response->json();
         $results = [];
 
-        // Formatear canciones
+        // Formateo de tracks (mantenemos tu lógica pero para el JSON)
         if (isset($data['tracks'])) {
             foreach ($data['tracks']['items'] as $track) {
                 $results[] = [
@@ -128,7 +193,7 @@ class SpotifyController extends Controller
             }
         }
 
-        // Formatear álbumes
+        // Formateo de álbumes
         if (isset($data['albums'])) {
             foreach ($data['albums']['items'] as $album) {
                 $results[] = [
@@ -141,21 +206,24 @@ class SpotifyController extends Controller
             }
         }
 
-        return view('dashboard', [
-            'profile' => $profileData,
+        return response()->json([
+            'status' => 'success',
             'results' => $results
         ]);
     }
 
+    /**
+     * Guardar Post (JSON con código 201)
+     */
     public function storePost(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'track_name' => 'required|string',
             'artist_name' => 'required|string',
             'image_url' => 'required|url',
         ]);
 
-        Post::create([
+        $post = Post::create([
             'user_id' => auth()->id(),
             'track_name' => $request->track_name,
             'artist_name' => $request->artist_name,
@@ -164,6 +232,10 @@ class SpotifyController extends Controller
             'comment' => $request->comment,
         ]);
 
-        return redirect()->route('dashboard')->with('success', '¡Canción publicada con éxito!');
+        return response()->json([
+            'status' => 'success',
+            'message' => '¡Canción publicada con éxito!',
+            'post' => $post
+        ], 201); // 201 significa "Creado"
     }
 }
