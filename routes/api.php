@@ -1,43 +1,53 @@
 <?php
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SpotifyController;
+use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use App\Http\Controllers\Auth\EmailVerificationNotificationController;
+use App\Http\Controllers\Auth\NewPasswordController;
+use App\Http\Controllers\Auth\PasswordResetLinkController;
+use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\Auth\VerifyEmailController;
+use Illuminate\Support\Facades\Route;
 
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-*/
+/* --- RUTAS PÚBLICAS (Para usuarios NO logueados) --- */
 
-// Rutas públicas (si necesitas alguna que no requiera login)
-// Route::get('/ping', function() { return response()->json(['res' => 'pong']); });
+Route::post('/login', [AuthenticatedSessionController::class, 'store']);
 
-// Rutas protegidas por autenticación
+Route::post('/register', [RegisteredUserController::class, 'store'])
+    ->middleware('guest');
+
+Route::post('/forgot-password', [PasswordResetLinkController::class, 'store'])
+    ->middleware('guest');
+
+Route::post('/reset-password', [NewPasswordController::class, 'store'])
+    ->middleware('guest');
+
+
+/* --- RUTAS PROTEGIDAS (Solo para usuarios con sesión activa) --- */
+
 Route::middleware('auth:sanctum')->group(function () {
 
-    // 1. Perfil del usuario (Datos de Spotify + Posts propios)
+    // Perfil y Feed
     Route::get('/profile', [SpotifyController::class, 'getProfile']);
-
-    // 2. Feed de noticias (Posts de seguidos y propios)
     Route::get('/feed', [SpotifyController::class, 'index']);
-
-    // 3. Búsqueda de música en Spotify
     Route::get('/search', [SpotifyController::class, 'search']);
 
-    // 4. Crear una nueva publicación musical
+    // Posts y Social
     Route::post('/posts', [SpotifyController::class, 'storePost']);
-
-    // 5. Gestión de seguidores (Seguir/Dejar de seguir)
+    Route::delete('/posts/{id}', [SpotifyController::class, 'destroyPost']);
+    Route::post('/posts/{id}/like', [SpotifyController::class, 'toggleLike']);
+    Route::post('/posts/{id}/comments', [SpotifyController::class, 'storeComment']);
     Route::post('/users/{id}/follow', [SpotifyController::class, 'toggleFollow']);
 
-    Route::post('/posts/{id}/like', [SpotifyController::class, 'toggleLike']);
-
-    // 6. Eliminar un post propio
-    Route::delete('/posts/{id}', [SpotifyController::class, 'destroyPost']);
+    // Verificación de email y Logout
+    Route::post('/logout', [AuthenticatedSessionController::class, 'destroy']);
+    
+    Route::post('/email/verification-notification', [EmailVerificationNotificationController::class, 'store'])
+        ->middleware('throttle:6,1');
 });
 
-/**
- * Nota: Las rutas de conexión inicial (connect y callback) suelen 
- * mantenerse en web.php porque requieren redirección del navegador.
- */
+// Esta ruta es especial, suele estar fuera o dentro dependiendo de si quieres que el front verifique el estado
+Route::get('/user', function (Request $request) {
+    return $request->user();
+})->middleware('auth:sanctum');

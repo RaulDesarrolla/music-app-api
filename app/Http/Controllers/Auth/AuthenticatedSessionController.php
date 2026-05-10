@@ -33,7 +33,7 @@ class AuthenticatedSessionController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
             ],
-            'access_token' => $token,
+            'token' => $token, // Ahora coincide con lo que busca tu compañero
             'token_type' => 'Bearer',
         ]);
     }

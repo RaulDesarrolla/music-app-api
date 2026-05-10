@@ -11,17 +11,22 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__ . '/../routes/console.php',
         health: '/up',
     )
-    ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->api(prepend: [
-            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-        ]);
+    ->withMiddleware(function (Middleware $middleware) {
+        // 1. Esto añade automáticamente EnsureFrontendRequestsAreStateful
+        $middleware->statefulApi();
 
+        // 2. Definimos los alias que ya tenías
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
             'spotify.check' => \App\Http\Middleware\EnsureSpotifyIsConnected::class,
         ]);
 
-        //
+        // 3. LA SOLUCIÓN AL 419: Excluir las rutas de login/register del CSRF
+        $middleware->preventRequestForgery(except: [
+            'api/login',
+            'api/register',
+            'sanctum/csrf-cookie',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

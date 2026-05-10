@@ -21,8 +21,8 @@ class RegisteredUserController extends Controller
         // 1. Validación de datos
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:' . User::class],
+            'password' => ['required', Rules\Password::defaults()], // <--- Sin 'confirmed'
         ]);
 
         // 2. Creación del usuario en Aiven
@@ -48,10 +48,8 @@ class RegisteredUserController extends Controller
             'status' => 'success',
             'message' => 'Usuario registrado correctamente',
             'user' => $user,
-            'authorisation' => [
-                'token' => $token,
-                'type' => 'bearer',
-            ]
+            'token' => $token,
+            'type' => 'bearer',
         ], 201);
     }
 }
