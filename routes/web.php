@@ -12,6 +12,3 @@ Route::get('/', function () {
  * RUTAS DE REDIRECCIÓN (No devuelven JSON, redirigen el navegador)
  */
 
-// Esta es la ruta a la que Spotify envía al usuario. 
-// Es WEB porque Spotify hace una redirección en el navegador.
-Route::get('/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');

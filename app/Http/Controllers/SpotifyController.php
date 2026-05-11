@@ -40,10 +40,12 @@ class SpotifyController extends Controller
             'client_id' => config('services.spotify.client_id'),
             'redirect_uri' => config('services.spotify.redirect'),
             'response_type' => 'code',
-            'scope' => 'user-read-private user-read-email',
+            'scope' => 'user-read-private user-read-email user-top-read',
+            'state' => auth()->id(), // <--- AÑADIMOS ESTO: Enviamos el ID del usuario actual
+            'show_dialog' => true
         ]);
 
-        return redirect()->away($url);
+        return response()->json(['url' => $url]);
     }
 
     /**
@@ -51,14 +53,18 @@ class SpotifyController extends Controller
      */
     public function callback(Request $request)
     {
-        if (!auth()->check()) {
-            return response()->json(['error' => 'No autenticado'], 401);
+        $code = $request->query('code');
+        $userId = $request->query('state'); // <--- Recuperamos el ID que enviamos antes
+
+        // Buscamos al usuario por el ID del state si auth()->user() falla
+        $user = auth()->user() ?? \App\Models\User::find($userId);
+
+        if (!$user) {
+            return response()->json(['error' => 'Usuario no identificado'], 401);
         }
 
-        $code = $request->query('code');
-
         if (!$code) {
-            return response()->json(['error' => 'No se recibió el código de Spotify'], 400);
+            return response()->json(['error' => 'No se recibió el código'], 400);
         }
 
         $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
@@ -75,13 +81,14 @@ class SpotifyController extends Controller
             return response()->json(['error' => 'Fallo al obtener tokens', 'detalle' => $data], 400);
         }
 
-        auth()->user()->update([
+        // Usamos la variable $user (la que encontramos arriba)
+        $user->update([
             'access_token' => $data['access_token'],
             'refresh_token' => $data['refresh_token'] ?? null,
             'expires_at' => now()->addSeconds($data['expires_in']),
         ]);
 
-        return redirect('http://localhost:3000/dashboard?spotify=connected');
+        return redirect('http://localhost:5173/dashboard?spotify=connected');
     }
 
     /**
@@ -152,7 +159,8 @@ class SpotifyController extends Controller
     public function search(Request $request)
     {
         $query = $request->input('query');
-        if (!$query) return response()->json(['error' => 'Escribe algo'], 400);
+        if (!$query)
+            return response()->json(['error' => 'Escribe algo'], 400);
 
         $user = auth()->user();
         $response = Http::withToken($user->access_token)
@@ -162,7 +170,8 @@ class SpotifyController extends Controller
                 'limit' => 10
             ]);
 
-        if ($response->failed()) return response()->json(['error' => 'Error Spotify'], 500);
+        if ($response->failed())
+            return response()->json(['error' => 'Error Spotify'], 500);
 
         $data = $response->json();
         $results = [];
@@ -208,7 +217,7 @@ class SpotifyController extends Controller
     /**
      * Store Comment (Firebase)
      */
-public function storeComment(Request $request, $postId)
+    public function storeComment(Request $request, $postId)
     {
         $request->validate([
             'content' => 'required|string|max:500',
@@ -226,10 +235,10 @@ public function storeComment(Request $request, $postId)
 
             // Creamos el array de datos fuera del método add para evitar errores de sintaxis
             $data = [
-                'post_id'    => (int)$postId,
-                'user_id'    => auth()->id(),
-                'user_name'  => auth()->user()->name,
-                'content'    => $request->input('content'),
+                'post_id' => (int) $postId,
+                'user_id' => auth()->id(),
+                'user_name' => auth()->user()->name,
+                'content' => $request->input('content'),
                 'created_at' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
             ];
 

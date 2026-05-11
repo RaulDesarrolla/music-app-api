@@ -13,6 +13,8 @@ Route::post('/login', [AuthenticatedSessionController::class, 'store']);
 Route::post('/register', [RegisteredUserController::class, 'store']);
 Route::post('/forgot-password', [PasswordResetLinkController::class, 'store']);
 Route::post('/reset-password', [NewPasswordController::class, 'store']);
+// Esta es la ruta a la que Spotify envía al usuario. 
+Route::get('/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');
 
 /* --- RUTAS PROTEGIDAS (Sanctum) --- */
 Route::middleware('auth:sanctum')->group(function () {
