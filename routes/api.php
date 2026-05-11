@@ -3,51 +3,40 @@
 use Illuminate\Http\Request;
 use App\Http\Controllers\SpotifyController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
-use App\Http\Controllers\Auth\EmailVerificationNotificationController;
-use App\Http\Controllers\Auth\NewPasswordController;
-use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
-use App\Http\Controllers\Auth\VerifyEmailController;
+use App\Http\Controllers\Auth\PasswordResetLinkController;
+use App\Http\Controllers\Auth\NewPasswordController;
 use Illuminate\Support\Facades\Route;
 
-/* --- RUTAS PÚBLICAS (Para usuarios NO logueados) --- */
-
+/* --- RUTAS PÚBLICAS --- */
 Route::post('/login', [AuthenticatedSessionController::class, 'store']);
+Route::post('/register', [RegisteredUserController::class, 'store']);
+Route::post('/forgot-password', [PasswordResetLinkController::class, 'store']);
+Route::post('/reset-password', [NewPasswordController::class, 'store']);
 
-Route::post('/register', [RegisteredUserController::class, 'store'])
-    ->middleware('guest');
-
-Route::post('/forgot-password', [PasswordResetLinkController::class, 'store'])
-    ->middleware('guest');
-
-Route::post('/reset-password', [NewPasswordController::class, 'store'])
-    ->middleware('guest');
-
-
-/* --- RUTAS PROTEGIDAS (Solo para usuarios con sesión activa) --- */
-
+/* --- RUTAS PROTEGIDAS (Sanctum) --- */
 Route::middleware('auth:sanctum')->group(function () {
 
-    // Perfil y Feed
+    // --- Spotify Auth ---
+    // React llamará aquí para obtener la URL de conexión
+    Route::get('/spotify/connect', [SpotifyController::class, 'connect'])->name('spotify.connect');
+
+    // --- Perfil y Búsqueda ---
     Route::get('/profile', [SpotifyController::class, 'getProfile']);
     Route::get('/feed', [SpotifyController::class, 'index']);
-    Route::get('/search', [SpotifyController::class, 'search']);
+    
+    // Rutas que requieren que Spotify esté vinculado
+    Route::middleware(['spotify.check'])->group(function () {
+        Route::get('/search', [SpotifyController::class, 'search']);
+        Route::post('/posts', [SpotifyController::class, 'storePost']);
+        Route::get('/dashboard', [SpotifyController::class, 'getProfile']);
+    });
 
-    // Posts y Social
-    Route::post('/posts', [SpotifyController::class, 'storePost']);
+    // --- Social & Otros ---
     Route::delete('/posts/{id}', [SpotifyController::class, 'destroyPost']);
-    Route::post('/posts/{id}/like', [SpotifyController::class, 'toggleLike']);
-    Route::post('/posts/{id}/comments', [SpotifyController::class, 'storeComment']);
-    Route::post('/users/{id}/follow', [SpotifyController::class, 'toggleFollow']);
-
-    // Verificación de email y Logout
     Route::post('/logout', [AuthenticatedSessionController::class, 'destroy']);
     
-    Route::post('/email/verification-notification', [EmailVerificationNotificationController::class, 'store'])
-        ->middleware('throttle:6,1');
+    Route::get('/user', function (Request $request) {
+        return $request->user();
+    });
 });
-
-// Esta ruta es especial, suele estar fuera o dentro dependiendo de si quieres que el front verifique el estado
-Route::get('/user', function (Request $request) {
-    return $request->user();
-})->middleware('auth:sanctum');

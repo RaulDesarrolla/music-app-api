@@ -2,40 +2,16 @@
 
 use App\Http\Controllers\SpotifyController;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Auth\LoginController;
-use App\Http\Controllers\Auth\LogoutController;
-// Ruta base
+
+// Ruta base - Solo para confirmar que el servidor está vivo
 Route::get('/', function () {
-    return view('welcome');
+    return response()->json(['status' => 'Music App API is running']);
 });
 
-// Rutas de Autenticación manual
-Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
-Route::post('/login', [LoginController::class, 'login']);
-Route::post('/logout', [LogoutController::class, 'logout'])->name('logout');
+/**
+ * RUTAS DE REDIRECCIÓN (No devuelven JSON, redirigen el navegador)
+ */
 
-// Rutas protegidas: El usuario DEBE estar logueado para conectar Spotify
-Route::middleware(['auth'])->group(function () {
-
-    Route::get('/connect-spotify', function () {
-        return view('spotify.prompt');
-    })->name('spotify.prompt');
-
-    Route::get('/dashboard', [SpotifyController::class, 'getProfile'])->name('dashboard');
-    
-    Route::get('/spotify/connect', [SpotifyController::class, 'connect'])->name('spotify.connect');
-
-    Route::get('/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');
-
-    Route::middleware(['spotify.check'])->group(function () {
-        Route::get('/dashboard', [SpotifyController::class, 'getProfile'])->name('dashboard');
-        Route::get('/spotify/search', [SpotifyController::class, 'search'])->name('spotify.search');
-    });
-});
-
-Route::middleware(['auth', 'spotify.check'])->group(function () {
-    Route::post('/posts', [SpotifyController::class, 'storePost'])->name('posts.store');
-});
-
-// Importación de las rutas de Breeze
-require __DIR__.'/auth.php';
+// Esta es la ruta a la que Spotify envía al usuario. 
+// Es WEB porque Spotify hace una redirección en el navegador.
+Route::get('/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');
