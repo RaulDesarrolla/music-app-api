@@ -28,7 +28,13 @@ return Application::configure(basePath: dirname(__DIR__))
             'sanctum/csrf-cookie',
         ]);
     })
-    ->withExceptions(function (Exceptions $exceptions): void {
-        //
-    })->create();
 
+    ->withExceptions(function (Exceptions $exceptions) {
+        $exceptions->shouldRenderJsonWhen(function (Request $request, Throwable $e) {
+            if ($request->is('api/*') || $request->is('sanctum/*')) {
+                return true;
+            }
+            return $request->expectsJson();
+        });
+    })
+    ->create();

@@ -88,24 +88,42 @@ class SpotifyController extends Controller
             'expires_at' => now()->addSeconds($data['expires_in']),
         ]);
 
-        return redirect('http://localhost:5173/dashboard?spotify=connected');
+        return redirect('http://localhost:5180/dashboard?spotify=connected');
     }
 
     /**
-     * Obtener perfil
+     * Obtener perfil de usuario filtrado (Nombre y Foto)
      */
     public function getProfile()
     {
+        // 1. Llamamos a tu método auxiliar que ya consulta a Spotify
         $profileData = $this->getSpotifyProfileData();
 
+        // 2. Si no hay datos (token expirado), limpiamos y avisamos
         if (!$profileData) {
-            auth()->user()->update(['access_token' => null]);
+            if (auth()->check()) {
+                auth()->user()->update(['access_token' => null]);
+            }
             return response()->json(['error' => 'Sesión de Spotify expirada'], 401);
         }
 
+        // 3. Extraemos la foto de perfil de forma segura
+        // Spotify devuelve un array de objetos en 'images'. 
+        // Usamos el operador nullsafe o comprobamos si el array tiene elementos.
+        $photoUrl = null;
+        if (!empty($profileData['images'])) {
+            // Tomamos la primera imagen disponible (índice 0)
+            $photoUrl = $profileData['images'][0]['url'];
+        }
+
+        // 4. Devolvemos solo lo necesario para el Dashboard
         return response()->json([
             'status' => 'success',
-            'profile' => $profileData
+            'user' => [
+                'name' => $profileData['display_name'] ?? 'Usuario de Spotify',
+                'photo' => $photoUrl, // Puede ser null si no tiene foto
+                'url' => $profileData['external_urls']['spotify'] ?? null // Opcional: link al perfil
+            ]
         ]);
     }
 
