@@ -24,7 +24,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/spotify/connect', [SpotifyController::class, 'connect'])->name('spotify.connect');
 
     // --- Perfil y Búsqueda ---
-    Route::get('/profile', [SpotifyController::class, 'getProfile']);
+    Route::middleware('auth:sanctum')->get('/spotify/profile', [SpotifyController::class, 'getProfile']);
     Route::get('/feed', [SpotifyController::class, 'index']);
     
     // Rutas que requieren que Spotify esté vinculado

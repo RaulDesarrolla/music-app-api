@@ -17,11 +17,16 @@ class SpotifyController extends Controller
     {
         $user = auth()->user();
 
-        if (!$user || !$user->access_token) {
+        // Intentamos obtener el token a través de la relación hasOne
+        // El operador ?-> (nullsafe) evita errores si el usuario no tiene registro en spotify_tokens
+        $token = $user?->spotifyToken?->access_token;
+
+        if (!$token) {
             return null;
         }
 
-        $response = Http::withToken($user->access_token)
+        // Petición a Spotify usando el token almacenado en Aiven
+        $response = Http::withToken($token)
             ->get('https://api.spotify.com/v1/me');
 
         if ($response->failed()) {
@@ -30,7 +35,6 @@ class SpotifyController extends Controller
 
         return $response->json();
     }
-
     /**
      * Conecta con Spotify
      */
@@ -52,84 +56,79 @@ class SpotifyController extends Controller
      * Callback de Spotify
      */
 
-public function callback(Request $request)
-{
-    $code = $request->query('code');
-    $userId = $request->query('state'); 
+    public function callback(Request $request)
+    {
+        $code = $request->query('code');
+        $userId = $request->query('state');
 
-    // 1. Buscamos al usuario
-    $user = auth()->user() ?? \App\Models\User::find($userId);
+        // 1. Buscamos al usuario
+        $user = auth()->user() ?? \App\Models\User::find($userId);
 
-    if (!$user) {
-        return response()->json(['error' => 'Usuario no identificado'], 401);
+        if (!$user) {
+            return response()->json(['error' => 'Usuario no identificado'], 401);
+        }
+
+        if (!$code) {
+            return response()->json(['error' => 'No se recibió el código'], 400);
+        }
+
+        // 2. Petición a Spotify para obtener los tokens
+        $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
+            'grant_type' => 'authorization_code',
+            'code' => $code,
+            'redirect_uri' => config('services.spotify.redirect'),
+            'client_id' => config('services.spotify.client_id'),
+            'client_secret' => config('services.spotify.client_secret'),
+        ]);
+
+        $data = $response->json();
+
+        if ($response->failed()) {
+            return response()->json(['error' => 'Fallo al obtener tokens', 'detalle' => $data], 400);
+        }
+
+        // Usamos la relación definida en el modelo User
+        $user->spotifyToken()->updateOrCreate(
+            ['user_id' => $user->id],
+            [
+                'access_token' => $data['access_token'],
+                // Spotify solo envía el refresh_token la primera vez o si se pide offline
+                'refresh_token' => $data['refresh_token'] ?? ($user->spotifyToken->refresh_token ?? null),
+                'expires_in' => $data['expires_in'],
+                'expires_at' => now()->addSeconds($data['expires_in']),
+            ]
+        );
+
+        return redirect('http://localhost:5180/dashboard?spotify=connected');
     }
-
-    if (!$code) {
-        return response()->json(['error' => 'No se recibió el código'], 400);
-    }
-
-    // 2. Petición a Spotify para obtener los tokens
-    $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
-        'grant_type' => 'authorization_code',
-        'code' => $code,
-        'redirect_uri' => config('services.spotify.redirect'),
-        'client_id' => config('services.spotify.client_id'),
-        'client_secret' => config('services.spotify.client_secret'),
-    ]);
-
-    $data = $response->json();
-
-    if ($response->failed()) {
-        return response()->json(['error' => 'Fallo al obtener tokens', 'detalle' => $data], 400);
-    }
-
-    // Usamos la relación definida en el modelo User
-    $user->spotifyToken()->updateOrCreate(
-        ['user_id' => $user->id],
-        [
-            'access_token' => $data['access_token'],
-            // Spotify solo envía el refresh_token la primera vez o si se pide offline
-            'refresh_token' => $data['refresh_token'] ?? ($user->spotifyToken->refresh_token ?? null),
-            'expires_in' => $data['expires_in'],
-            'expires_at' => now()->addSeconds($data['expires_in']),
-        ]
-    );
-
-    return redirect('http://localhost:5180/dashboard?spotify=connected');
-}
 
     /**
      * Obtener perfil de usuario filtrado (Nombre y Foto)
      */
     public function getProfile()
     {
-        // 1. Llamamos a tu método auxiliar que ya consulta a Spotify
         $profileData = $this->getSpotifyProfileData();
 
-        // 2. Si no hay datos (token expirado), limpiamos y avisamos
+        // Si no hay datos, significa que el token no existe o ha expirado
         if (!$profileData) {
-            if (auth()->check()) {
-                auth()->user()->update(['access_token' => null]);
-            }
-            return response()->json(['error' => 'Sesión de Spotify expirada'], 401);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No hay conexión activa con Spotify'
+            ], 401);
         }
 
-        // 3. Extraemos la foto de perfil de forma segura
-        // Spotify devuelve un array de objetos en 'images'. 
-        // Usamos el operador nullsafe o comprobamos si el array tiene elementos.
+        // Spotify devuelve las fotos en un array llamado 'images'
         $photoUrl = null;
-        if (!empty($profileData['images'])) {
-            // Tomamos la primera imagen disponible (índice 0)
+        if (!empty($profileData['images']) && isset($profileData['images'][0]['url'])) {
             $photoUrl = $profileData['images'][0]['url'];
         }
 
-        // 4. Devolvemos solo lo necesario para el Dashboard
         return response()->json([
             'status' => 'success',
             'user' => [
-                'name' => $profileData['display_name'] ?? 'Usuario de Spotify',
-                'photo' => $photoUrl, // Puede ser null si no tiene foto
-                'url' => $profileData['external_urls']['spotify'] ?? null // Opcional: link al perfil
+                'name' => $profileData['display_name'] ?? 'Usuario',
+                'photo' => $photoUrl,
+                'spotify_url' => $profileData['external_urls']['spotify'] ?? null
             ]
         ]);
     }
