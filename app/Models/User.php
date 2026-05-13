@@ -56,7 +56,7 @@ class User extends Authenticatable
     public function grupos(): BelongsToMany
     {
         return $this->belongsToMany(Grupo::class, 'grupos_users', 'user_id', 'group_id')
-                    ->withPivot('is_admin', 'joined_at');
+            ->withPivot('is_admin', 'joined_at');
     }
 
     /**
@@ -65,7 +65,7 @@ class User extends Authenticatable
     public function follows(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'follows', 'follower_id', 'followed_id')
-                    ->withTimestamps();
+            ->withTimestamps();
     }
 
     /**
@@ -74,6 +74,13 @@ class User extends Authenticatable
     public function followers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'follows', 'followed_id', 'follower_id')
-                    ->withTimestamps();
+            ->withTimestamps();
+    }
+
+
+    public function spotifyToken()
+    {
+        // Un usuario tiene un registro de token de Spotify
+        return $this->hasOne(SpotifyToken::class);
     }
 }

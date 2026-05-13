@@ -51,45 +51,52 @@ class SpotifyController extends Controller
     /**
      * Callback de Spotify
      */
-    public function callback(Request $request)
-    {
-        $code = $request->query('code');
-        $userId = $request->query('state'); // <--- Recuperamos el ID que enviamos antes
 
-        // Buscamos al usuario por el ID del state si auth()->user() falla
-        $user = auth()->user() ?? \App\Models\User::find($userId);
+public function callback(Request $request)
+{
+    $code = $request->query('code');
+    $userId = $request->query('state'); 
 
-        if (!$user) {
-            return response()->json(['error' => 'Usuario no identificado'], 401);
-        }
+    // 1. Buscamos al usuario
+    $user = auth()->user() ?? \App\Models\User::find($userId);
 
-        if (!$code) {
-            return response()->json(['error' => 'No se recibió el código'], 400);
-        }
-
-        $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
-            'grant_type' => 'authorization_code',
-            'code' => $code,
-            'redirect_uri' => config('services.spotify.redirect'),
-            'client_id' => config('services.spotify.client_id'),
-            'client_secret' => config('services.spotify.client_secret'),
-        ]);
-
-        $data = $response->json();
-
-        if ($response->failed()) {
-            return response()->json(['error' => 'Fallo al obtener tokens', 'detalle' => $data], 400);
-        }
-
-        // Usamos la variable $user (la que encontramos arriba)
-        $user->update([
-            'access_token' => $data['access_token'],
-            'refresh_token' => $data['refresh_token'] ?? null,
-            'expires_at' => now()->addSeconds($data['expires_in']),
-        ]);
-
-        return redirect('http://localhost:5180/dashboard?spotify=connected');
+    if (!$user) {
+        return response()->json(['error' => 'Usuario no identificado'], 401);
     }
+
+    if (!$code) {
+        return response()->json(['error' => 'No se recibió el código'], 400);
+    }
+
+    // 2. Petición a Spotify para obtener los tokens
+    $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
+        'grant_type' => 'authorization_code',
+        'code' => $code,
+        'redirect_uri' => config('services.spotify.redirect'),
+        'client_id' => config('services.spotify.client_id'),
+        'client_secret' => config('services.spotify.client_secret'),
+    ]);
+
+    $data = $response->json();
+
+    if ($response->failed()) {
+        return response()->json(['error' => 'Fallo al obtener tokens', 'detalle' => $data], 400);
+    }
+
+    // Usamos la relación definida en el modelo User
+    $user->spotifyToken()->updateOrCreate(
+        ['user_id' => $user->id],
+        [
+            'access_token' => $data['access_token'],
+            // Spotify solo envía el refresh_token la primera vez o si se pide offline
+            'refresh_token' => $data['refresh_token'] ?? ($user->spotifyToken->refresh_token ?? null),
+            'expires_in' => $data['expires_in'],
+            'expires_at' => now()->addSeconds($data['expires_in']),
+        ]
+    );
+
+    return redirect('http://localhost:5180/dashboard?spotify=connected');
+}
 
     /**
      * Obtener perfil de usuario filtrado (Nombre y Foto)
