@@ -30,11 +30,8 @@ return Application::configure(basePath: dirname(__DIR__))
     })
 
     ->withExceptions(function (Exceptions $exceptions) {
-        $exceptions->shouldRenderJsonWhen(function (Request $request, Throwable $e) {
-            if ($request->is('api/*') || $request->is('sanctum/*')) {
-                return true;
-            }
-            return $request->expectsJson();
-        });
-    })
+    $exceptions->shouldRenderJsonWhen(function (\Illuminate\Http\Request $request) {
+        return true;
+    });
+})
     ->create();
