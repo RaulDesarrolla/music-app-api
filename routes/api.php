@@ -5,6 +5,8 @@ use App\Http\Controllers\SpotifyController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Http;
+use Carbon\Carbon;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,7 +20,6 @@ Route::post('/login', [AuthenticatedSessionController::class, 'store']);
 Route::post('/register', [RegisteredUserController::class, 'store']);
 
 // 🔥 RUTAS DE OAUTH DE SPOTIFY (Tienen que ser públicas para que funcione el flujo)
-Route::get('/spotify/connect', [SpotifyController::class, 'connect']);
 Route::get('/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');
 
 
@@ -27,10 +28,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // --- Spotify Perfil y Acciones ---
     Route::prefix('spotify')->group(function () {
-        // Nota: El /connect ya no está aquí dentro para evitar bloqueos de Sanctum
+        // 🛡️ METEMOS AQUÍ EL CONNECT: Ahora Laravel sí sabrá quién es el usuario logueado
+        Route::get('/connect', [SpotifyController::class, 'connect']);
         Route::get('/profile', [SpotifyController::class, 'getProfile']);
-        Route::get('/player-token', [SpotifyController::class, 'getPlayerToken']); 
-        Route::get('/search', [SpotifyController::class, 'search']); 
+        Route::get('/player-token', [SpotifyController::class, 'getPlayerToken']);
+        Route::get('/search', [SpotifyController::class, 'search']);
+        Route::get('/weekly-wrapped', [SpotifyController::class, 'getWeeklyWrapped']);
     });
 
     // --- Social / Feed ---

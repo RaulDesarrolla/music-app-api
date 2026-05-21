@@ -19,25 +19,24 @@ class SpotifyController extends Controller
         if (!$user)
             return null;
 
-        $spotifyToken = $user->spotifyToken;
-        if (!$spotifyToken)
+        // ✅ CORREGIDO: Leemos directamente del modelo User
+        if (!$user->access_token)
             return null;
 
-        if (now()->addMinutes(5)->greaterThan($spotifyToken->expires_at)) {
+        // ✅ CORREGIDO: Comprobamos la expiración directa del User
+        if ($user->expires_at && now()->addMinutes(5)->greaterThan($user->expires_at)) {
             return $this->refreshSpotifyToken($user);
         }
 
-        return $spotifyToken->access_token;
+        return $user->access_token;
     }
 
     private function refreshSpotifyToken($user)
     {
-        $spotifyToken = $user->spotifyToken;
-
         // ✅ URL Oficial de Cuentas de Spotify para refrescar tokens
         $response = Http::asForm()->post('https://accounts.spotify.com/api/token', [
             'grant_type' => 'refresh_token',
-            'refresh_token' => $spotifyToken->refresh_token,
+            'refresh_token' => $user->refresh_token, // <-- Campo directo del User
             'client_id' => config('services.spotify.client_id'),
             'client_secret' => config('services.spotify.client_secret'),
         ]);
@@ -48,11 +47,10 @@ class SpotifyController extends Controller
 
         $data = $response->json();
 
-        // Actualizamos los datos en la base de datos
-        $spotifyToken->update([
+        // ✅ CORREGIDO: Actualizamos los datos directamente en la tabla 'users'
+        $user->update([
             'access_token' => $data['access_token'],
-            'refresh_token' => $data['refresh_token'] ?? $spotifyToken->refresh_token,
-            'expires_in' => $data['expires_in'],
+            'refresh_token' => $data['refresh_token'] ?? $user->refresh_token,
             'expires_at' => now()->addSeconds($data['expires_in']),
         ]);
 
@@ -64,26 +62,14 @@ class SpotifyController extends Controller
      */
     public function connect(Request $request)
     {
-        $token = $request->query('token');
-        $userId = null;
+        $userId = $request->user()->id;
 
-        if ($token) {
-            $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
-            if ($accessToken) {
-                $userId = $accessToken->tokenable_id;
-            }
-        }
-
-        if (!$userId) {
-            return response()->json(['error' => 'No autorizado. Token de usuario inválido o ausente.'], 401);
-        }
-
-        // ✅ URL Oficial del Diálogo de Autenticación de Spotify
+        // ✅ CORREGIDO: Añadido 'user-read-recently-played' a la cadena de scopes
         $url = 'https://accounts.spotify.com/authorize?' . http_build_query([
             'client_id' => config('services.spotify.client_id'),
             'redirect_uri' => config('services.spotify.redirect'),
             'response_type' => 'code',
-            'scope' => 'user-read-private user-read-email user-top-read streaming user-library-read user-read-playback-state user-modify-playback-state',
+            'scope' => 'user-read-private user-read-email user-top-read streaming user-library-read user-read-playback-state user-modify-playback-state user-read-recently-played',
             'state' => $userId,
             'show_dialog' => true
         ]);
@@ -120,16 +106,17 @@ class SpotifyController extends Controller
 
         $data = $response->json();
 
-        // Guardamos el token de Spotify
-        $user->spotifyToken()->updateOrCreate(
-            ['user_id' => $user->id],
-            [
-                'access_token' => $data['access_token'],
-                'refresh_token' => $data['refresh_token'] ?? ($user->spotifyToken->refresh_token ?? null),
-                'expires_in' => $data['expires_in'],
-                'expires_at' => now()->addSeconds($data['expires_in']),
-            ]
-        );
+        // Obtener el perfil de spotify para guardar el spotify_id (opcional pero muy útil)
+        $profileResponse = Http::withToken($data['access_token'])->get('https://api.spotify.com/v1/me');
+        $spotifyId = $profileResponse->successful() ? $profileResponse->json()['id'] : null;
+
+        // ✅ CORREGIDO: Guardamos los tokens directamente en las columnas del propio Usuario
+        $user->update([
+            'spotify_id' => $spotifyId ?? $user->spotify_id,
+            'access_token' => $data['access_token'],
+            'refresh_token' => $data['refresh_token'] ?? $user->refresh_token,
+            'expires_at' => now()->addSeconds($data['expires_in']),
+        ]);
 
         $frontendUrl = env('FRONTEND_URL', 'http://localhost:5185');
 
@@ -217,6 +204,103 @@ class SpotifyController extends Controller
 
         return response()->json(['status' => 'success', 'results' => $results]);
     }
+
+    // ... tus otros métodos (getSpotifyToken, etc.)
+
+    public function getWeeklyWrapped(Request $request)
+    {
+        $user = $request->user();
+
+        // 1. Obtener el token válido de Spotify (usando tu lógica existente)
+        $token = $this->getSpotifyToken();
+        if (!$token) {
+            return response()->json(['error' => 'No conectado a Spotify'], 404);
+        }
+
+        try {
+            // 2. Consultar el historial reciente de Spotify (máximo permitido: 50 items)
+            $response = Http::withToken($token)->get('https://api.spotify.com/v1/me/player/recently-played', [
+                'limit' => 50
+            ]);
+
+            if ($response->failed()) {
+                return response()->json(['error' => 'Error al consultar la API de Spotify'], $response->status());
+            }
+
+            $playedTracks = $response->json()['items'] ?? [];
+
+            // 3. Definir los límites de la semana en curso (Lunes a Domingo)
+            $startOfWeek = Carbon::now()->startOfWeek(); // Lunes 00:00
+            $endOfWeek = Carbon::now()->endOfWeek();     // Domingo 23:59
+
+            $totalMs = 0;
+            $artistsCounter = [];
+            $artistIds = []; // Guardaremos los IDs para pedir los géneros después
+
+            foreach ($playedTracks as $item) {
+                $playedAt = Carbon::parse($item['played_at']);
+
+                // Filtrar: Solo nos interesan las canciones de la semana actual
+                if ($playedAt->between($startOfWeek, $endOfWeek)) {
+                    $track = $item['track'];
+
+                    // Sumar la duración de la canción en milisegundos
+                    $totalMs += $track['duration_ms'];
+
+                    // Contar artistas
+                    foreach ($track['artists'] as $artist) {
+                        $artistName = $artist['name'];
+                        $artistsCounter[$artistName] = ($artistsCounter[$artistName] ?? 0) + 1;
+
+                        // Guardamos el ID del primer artista para sacar su género luego
+                        $artistIds[$artistName] = $artist['id'];
+                    }
+                }
+            }
+
+            // 4. Calcular el cantante más escuchado
+            $topArtist = 'Ninguno';
+            if (!empty($artistsCounter)) {
+                arsort($artistsCounter); // Ordena de mayor a menor
+                $topArtist = array_key_first($artistsCounter);
+            }
+
+            // 5. Calcular las horas escuchadas (Milisegundos -> Horas con 1 decimal)
+            // Fórmula: ms / (1000 * 60 * 60)
+            $totalHours = round($totalMs / 3600000, 1);
+
+            // 6. Obtener el género más escuchado
+            // Nota: Las canciones no traen género, hay que pedir el género del artista TOP a Spotify
+            $topGenre = 'Desconocido';
+            if ($topArtist !== 'Ninguno' && isset($artistIds[$topArtist])) {
+                $artistId = $artistIds[$topArtist];
+                $artistResponse = Http::withToken($token)->get("https://api.spotify.com/v1/artists/{$artistId}");
+
+                if ($artistResponse->successful()) {
+                    $genres = $artistResponse->json()['genres'] ?? [];
+                    if (!empty($genres)) {
+                        $topGenre = strtoupper($genres[0]); // Ej: "TECHNO" o "POP"
+                    }
+                }
+            }
+
+            // 7. Retornar la respuesta limpia para React
+            return response()->json([
+                'status' => 'success',
+                'wrapped' => [
+                    'hours_played' => $totalHours,
+                    'top_artist' => $topArtist,
+                    'top_genre' => $topGenre,
+                    'start_date' => $startOfWeek->format('d/m'),
+                    'end_date' => $endOfWeek->format('d/m')
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Fallo en el servidor: ' . $e->getMessage()], 500);
+        }
+    }
+
 
     /**
      * Feed y Posts (Lógica Social)
