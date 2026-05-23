@@ -27,11 +27,19 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/register',
             'sanctum/csrf-cookie',
         ]);
+
+        $middleware->alias([
+            'admin' => \App\Http\Middleware\EnsureUserIsAdmin::class,
+        ]);
     })
 
     ->withExceptions(function (Exceptions $exceptions) {
-    $exceptions->shouldRenderJsonWhen(function (\Illuminate\Http\Request $request) {
-        return true;
-    });
-})
+        $exceptions->shouldRenderJsonWhen(function (Request $request, Throwable $e) {
+            if ($request->is('api/*')) {
+                return true;
+            }
+
+            return $request->expectsJson();
+        });
+    })
     ->create();

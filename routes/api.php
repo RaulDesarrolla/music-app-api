@@ -5,8 +5,7 @@ use App\Http\Controllers\SpotifyController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Http;
-use Carbon\Carbon;
+use App\Http\Controllers\AdminController; 
 
 /*
 |--------------------------------------------------------------------------
@@ -34,6 +33,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/player-token', [SpotifyController::class, 'getPlayerToken']);
         Route::get('/search', [SpotifyController::class, 'search']);
         Route::get('/weekly-wrapped', [SpotifyController::class, 'getWeeklyWrapped']);
+    });
+
+    Route::middleware('admin')->prefix('admin')->group(function () {
+        
+        // Endpoint para conseguir las métricas analíticas avanzadas y el listado de posts
+        Route::get('/dashboard-stats', [AdminController::class, 'getDashboardStats']);
+        
+        // Endpoint para moderar y eliminar un post problemático por su ID en tiempo real
+        Route::delete('/posts/{id}', [AdminController::class, 'deletePost']);
+        
     });
 
     // --- Social / Feed ---

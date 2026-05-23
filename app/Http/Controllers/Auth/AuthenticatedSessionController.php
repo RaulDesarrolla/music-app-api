@@ -5,26 +5,28 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse; // Usamos JsonResponse para la API
+use Illuminate\Http\JsonResponse; 
 use Illuminate\Support\Facades\Auth;
+use Throwable; // 👈 Importamos la clase global de errores de PHP
 
 class AuthenticatedSessionController extends Controller
 {
     /**
-     * Maneja la solicitud de inicio de sesión.
+     * Maneja la solicitud de inicio de sesión con captura de diagnóstico.
      */
-    public function store(LoginRequest $request): JsonResponse
+   public function store(LoginRequest $request): JsonResponse
     {
         // 1. Valida las credenciales (Email y Password)
+        // Si fallan, Laravel enviará un JSON 422 controlado automáticamente gracias a bootstrap/app.php
         $request->authenticate();
 
-        // 2. Obtenemos el usuario autenticado
-        $user = $request->user();
+        // 2. Recuperamos el usuario validado desde el núcleo de autenticación
+        $user = Auth::user();
 
-        // 3. Generamos el token de acceso para el frontend
+        // 3. Generamos el token plano para tu aplicación de React
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        // 4. Devolvemos la respuesta con el token y datos básicos
+        // 4. Respuesta estructurada de éxito
         return response()->json([
             'status' => 'success',
             'message' => 'Login exitoso',
@@ -33,25 +35,8 @@ class AuthenticatedSessionController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
             ],
-            'token' => $token, // Ahora coincide con lo que busca tu compañero
+            'token' => $token, 
             'token_type' => 'Bearer',
-        ]);
-    }
-
-    /**
-     * Elimina la sesión y los tokens del usuario.
-     */
-    public function destroy(Request $request): JsonResponse
-    {
-        // 1. Revocamos el token actual que se está usando
-        $request->user()->currentAccessToken()->delete();
-
-        // 2. Logout tradicional de la guardia web (opcional en APIs puras)
-        Auth::guard('web')->logout();
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Sesión cerrada y token eliminado'
-        ]);
+        ], 200);
     }
 }

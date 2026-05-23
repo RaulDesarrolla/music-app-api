@@ -22,7 +22,6 @@ public function up(): void
         $table->string('album_name')->nullable();
         $table->string('image_url')->nullable();
         
-        // Un campo opcional por si el usuario quiere añadir un texto a su post
         $table->text('comment')->nullable(); 
         
         $table->timestamps();
