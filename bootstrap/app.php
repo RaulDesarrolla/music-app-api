@@ -15,18 +15,23 @@ return Application::configure(basePath: dirname(__DIR__))
         // 1. Esto añade automáticamente EnsureFrontendRequestsAreStateful
         $middleware->statefulApi();
 
+        $middleware->append(\Illuminate\Http\Middleware\HandleCors::class);
+
         // 2. Definimos los alias que ya tenías
         $middleware->alias([
             'verified' => \App\Http\Middleware\EnsureEmailIsVerified::class,
             'spotify.check' => \App\Http\Middleware\EnsureSpotifyIsConnected::class,
         ]);
 
-        // 3. LA SOLUCIÓN AL 419: Excluir las rutas de login/register del CSRF
+        // ! 'api/admin/posts/*' -> Ruta de aprobación y eliminación de posts 
+        // ! 'api/posts' -> Ruta de creación de posts (feed)
         $middleware->preventRequestForgery(except: [
             'api/login',
             'api/register',
             'api/admin/posts/*',
+            'api/posts',
             'sanctum/csrf-cookie',
+            'api/users/*/follow',
         ]);
 
         $middleware->alias([

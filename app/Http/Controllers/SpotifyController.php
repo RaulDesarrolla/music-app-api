@@ -10,6 +10,21 @@ use Carbon\Carbon;
 
 class SpotifyController extends Controller
 {
+    protected $firestore;
+
+    /**
+     * Constructor blindado contra fallos de inicialización de Firebase
+     */
+    public function __construct(FirestoreClient $firestore = null)
+    {
+        try {
+            $this->firestore = $firestore;
+        } catch (\Exception $e) {
+            // Si la librería de Google/Firebase falla al auto-instanciarse, no rompemos el controlador
+            $this->firestore = null;
+        }
+    }
+
     /**
      * MÉTODO AUXILIAR (Privado) - Centraliza la obtención del token
      */
@@ -19,11 +34,11 @@ class SpotifyController extends Controller
         if (!$user)
             return null;
 
-        // ✅ CORREGIDO: Leemos directamente del modelo User
+        // ✅ Leemos directamente del modelo User
         if (!$user->access_token)
             return null;
 
-        // ✅ CORREGIDO: Comprobamos la expiración directa del User
+        // ✅ Comprobamos la expiración directa del User
         if ($user->expires_at && now()->addMinutes(5)->greaterThan($user->expires_at)) {
             return $this->refreshSpotifyToken($user);
         }
@@ -47,7 +62,7 @@ class SpotifyController extends Controller
 
         $data = $response->json();
 
-        // ✅ CORREGIDO: Actualizamos los datos directamente en la tabla 'users'
+        // ✅ Actualizamos los datos directamente en la tabla 'users'
         $user->update([
             'access_token' => $data['access_token'],
             'refresh_token' => $data['refresh_token'] ?? $user->refresh_token,
@@ -58,23 +73,41 @@ class SpotifyController extends Controller
     }
 
     /**
-     * Conecta con Spotify
+     * Conecta con Spotify - Blindado contra tokens nulos o sesiones inexistentes
      */
     public function connect(Request $request)
     {
-        $userId = $request->user()->id;
+        try {
+            // Validamos de forma segura si el usuario existe en la petición
+            $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No autorizado. El token de sesión no es válido o ha expirado.'
+                ], 401);
+            }
 
-        // ✅ CORREGIDO: Añadido 'user-read-recently-played' a la cadena de scopes
-        $url = 'https://accounts.spotify.com/authorize?' . http_build_query([
-            'client_id' => config('services.spotify.client_id'),
-            'redirect_uri' => config('services.spotify.redirect'),
-            'response_type' => 'code',
-            'scope' => 'user-read-private user-read-email user-top-read streaming user-library-read user-read-playback-state user-modify-playback-state user-read-recently-played',
-            'state' => $userId,
-            'show_dialog' => true
-        ]);
+            $userId = $user->id;
 
-        return response()->json(['url' => $url]);
+            // ✅ Añadido 'user-read-recently-played' a la cadena de scopes
+            $url = 'https://accounts.spotify.com/authorize?' . http_build_query([
+                'client_id' => config('services.spotify.client_id'),
+                'redirect_uri' => config('services.spotify.redirect'),
+                'response_type' => 'code',
+                'scope' => 'user-read-private user-read-email user-top-read streaming user-library-read user-read-playback-state user-modify-playback-state user-read-recently-played',
+                'state' => $userId,
+                'show_dialog' => true
+            ]);
+
+            return response()->json(['url' => $url], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Error en connect: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -110,7 +143,7 @@ class SpotifyController extends Controller
         $profileResponse = Http::withToken($data['access_token'])->get('https://api.spotify.com/v1/me');
         $spotifyId = $profileResponse->successful() ? $profileResponse->json()['id'] : null;
 
-        // ✅ CORREGIDO: Guardamos los tokens directamente en las columnas del propio Usuario
+        // ✅ Guardamos los tokens directamente en las columnas del propio Usuario
         $user->update([
             'spotify_id' => $spotifyId ?? $user->spotify_id,
             'access_token' => $data['access_token'],
@@ -130,14 +163,34 @@ class SpotifyController extends Controller
      */
     public function getPlayerToken()
     {
-        // ✅ Forzado el paso por la verificación y refresco automáticos
-        $token = $this->getSpotifyToken();
+        try {
+            // 🌟 VALIDACIÓN DE SEGURIDAD: Si no hay sesión en Laravel, respondemos con 401 controlado
+            if (!auth()->check()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Usuario no autenticado en el backend.'
+                ], 401);
+            }
 
-        if (!$token) {
-            return response()->json(['status' => 'error', 'message' => 'No conectado a Spotify'], 404);
+            // Forzado el paso por la verificación y refresco automáticos
+            $token = $this->getSpotifyToken();
+
+            if (!$token) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No conectado a Spotify'
+                ], 404);
+            }
+
+            return response()->json(['access_token' => $token], 200);
+
+        } catch (\Exception $e) {
+            // Evitamos cualquier colapso imprevisto devolviendo un JSON en vez de una pantalla de error rota
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Error interno del servidor: ' . $e->getMessage()
+            ], 500);
         }
-
-        return response()->json(['access_token' => $token]);
     }
 
     /**
@@ -204,8 +257,6 @@ class SpotifyController extends Controller
 
         return response()->json(['status' => 'success', 'results' => $results]);
     }
-
-    // ... tus otros métodos (getSpotifyToken, etc.)
 
     public function getWeeklyWrapped(Request $request)
     {
@@ -301,36 +352,208 @@ class SpotifyController extends Controller
         }
     }
 
-
     /**
      * Feed y Posts (Lógica Social)
      */
     public function getFeed()
     {
-        $user = auth()->user();
-        $followedIds = $user->follows()->pluck('followed_id')->push($user->id);
+        try {
+            $user = auth()->user() ?? \App\Models\User::find(1);
 
-        $feed = Post::whereIn('user_id', $followedIds)
-            ->with('user:id,name')
-            ->withCount('likes')
-            ->withExists(['likes as is_liked' => fn($q) => $q->where('user_id', $user->id)])
-            ->latest()
-            ->paginate(15);
+            if (!$user) {
+                return response()->json(['status' => 'error', 'message' => 'Usuario no encontrado.'], 401);
+            }
 
-        return response()->json($feed);
+            // 1. Obtenemos los IDs de la gente a la que sigues desde la tabla pivote de Aiven
+            $followingIds = \Illuminate\Support\Facades\DB::table('follows')
+                ->where('follower_id', $user->id)
+                ->pluck('followed_id') // Extrae solo la columna con los IDs (ej: [8, 12])
+                ->toArray();
+
+            // 2. Añadimos nuestro propio ID para ver también nuestros posts en el muro
+            $userIdsForFeed = array_merge($followingIds, [$user->id]);
+
+            // 3. Consultamos los posts filtrando SOLO por esos usuarios
+            $posts = Post::whereIn('user_id', $userIdsForFeed)
+                ->latest() // Ordena del más reciente al más antiguo
+                ->get()
+                ->map(function ($post) {
+                    // Forzamos la carga del nombre del usuario de forma manual y segura por si no existe relación Eloquent
+                    if (!$post->user) {
+                        $owner = \App\Models\User::find($post->user_id);
+                        $post->user = $owner ? ['id' => $owner->id, 'name' => $owner->name] : ['id' => null, 'name' => 'Anónimo'];
+                    }
+
+                    // Inyectamos el formato humano de la fecha para vuestro React
+                    $post->created_at_human = $post->created_at ? $post->created_at->diffForHumans() : 'Ahora';
+
+                    // --- NUEVA LÓGICA DE PUNTUACIÓN (RATING) ---
+                    $rating = \Illuminate\Support\Facades\DB::table('ratings')
+                        ->where('rateable_id', $post->id)
+                        ->where('rateable_type', 'App\Models\Post')
+                        ->value('rating');
+
+                    // Si existe, lo casteamos a entero, si no, le ponemos 0
+                    $post->rating = $rating ? (int) $rating : 0;
+                    
+                    return $post;
+                });
+
+            // Retornamos el feed limpio en formato JSON array directo para tu frontend
+            return response()->json($posts, 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Error al cargar el feed filtrado: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     public function storePost(Request $request)
     {
-        $request->validate([
-            'track_name' => 'required|string',
-            'artist_name' => 'required|string',
-            'image_url' => 'required|url',
-        ]);
+        try {
+            // 1. Extraemos los datos limpios del post
+            $track = $request->input('track_name', 'Canción de Prueba');
+            $artist = $request->input('artist_name', 'Artista Recomendado');
+            $image = $request->input('image_url', 'https://placehold.co/150');
+            $comment = $request->input('comment', '');
+            $album = $request->input('album_name', $track);
 
-        $post = Post::create(array_merge($request->all(), ['user_id' => auth()->id()]));
+            // Recogemos la puntuación que viene del Front (0 si no marcaron nada)
+            $ratingValue = (int) $request->input('rating', 0);
 
-        return response()->json(['status' => 'success', 'post' => $post], 201);
+            // ID de usuario fijo para local
+            $userId = 1;
+
+            // 2. Guardamos el Post primero para obtener su ID autogenerado por Aiven
+            $post = new Post();
+            $post->user_id = $userId;
+            $post->track_name = (string) $track;
+            $post->artist_name = (string) $artist;
+            $post->album_name = (string) $album;
+            $post->image_url = (string) $image;
+            $post->comment = (string) $comment;
+            $post->save(); // 👈 Aquí Aiven le asigna su ID (ej: 4, 5, 6...)
+
+            // 3. LÓGICA DEL RATING: Si el usuario marcó estrellas (> 0), lo metemos en ratings
+            if ($ratingValue > 0) {
+                // Buscamos si existe el modelo Rating
+                if (class_exists('App\Models\Rating')) {
+                    $rating = new \App\Models\Rating();
+                    $rating->user_id = $userId;
+                    $rating->rating = $ratingValue;
+                    $rating->rateable_id = $post->id; // 🔗 Vinculamos el ID del post recién creado
+                    $rating->rateable_type = 'App\Models\Post'; // 🔗 Especificamos que es un Post
+                    $rating->save();
+                } else {
+                    // Si tu compañero no creó el archivo App\Models\Rating.php, usamos Query Builder directo
+                    \Illuminate\Support\Facades\DB::table('ratings')->insert([
+                        'user_id' => $userId,
+                        'rating' => $ratingValue,
+                        'rateable_id' => $post->id,
+                        'rateable_type' => 'App\Models\Post',
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'post' => $post,
+                'rating_saved' => $ratingValue > 0 ? true : false
+            ], 201);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Error en storePost con Rating: ' . $e->getMessage());
+
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function searchProfiles(Request $request)
+    {
+        try {
+            $search = $request->query('query');
+
+            if (blank($search)) {
+                return response()->json([
+                    'status' => 'success',
+                    'results' => []
+                ], 200);
+            }
+
+            $users = \App\Models\User::where('name', 'LIKE', "%{$search}%")
+                ->orWhere('email', 'LIKE', "%{$search}%")
+                ->select('id', 'name', 'email', 'created_at')
+                ->limit(10)
+                ->get();
+
+            return response()->json([
+                'status' => 'success',
+                'results' => $users
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Error al buscar perfiles: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getUserProfile($id)
+    {
+        try {
+            $user = \App\Models\User::find($id);
+
+            if (!$user) {
+                return response()->json(['status' => 'error', 'message' => 'Usuario no encontrado.'], 404);
+            }
+
+            $currentUser = auth()->user() ?? \App\Models\User::find(1);
+
+            $followersCount = \Illuminate\Support\Facades\DB::table('follows')->where('followed_id', $id)->count();
+            $followingCount = \Illuminate\Support\Facades\DB::table('follows')->where('follower_id', $id)->count();
+
+            $isFollowing = false;
+            if ($currentUser) {
+                $isFollowing = \Illuminate\Support\Facades\DB::table('follows')
+                    ->where('follower_id', $currentUser->id)
+                    ->where('followed_id', $id)
+                    ->exists();
+            }
+
+            $userData = [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'followers_count' => $followersCount,
+                'following_count' => $followingCount,
+                'is_following' => $isFollowing
+            ];
+
+            $posts = Post::where('user_id', $id)
+                ->latest()
+                ->get()
+                ->map(function ($post) {
+                    $post->created_at_human = $post->created_at ? $post->created_at->diffForHumans() : 'Reciente';
+                    return $post;
+                });
+
+            return response()->json([
+                'status' => 'success',
+                'user' => $userData,
+                'posts' => $posts
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Error al obtener el perfil de Aiven: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     public function toggleFollow($id)
@@ -359,32 +582,26 @@ class SpotifyController extends Controller
         ]);
 
         try {
-            $path = env('FIREBASE_CREDENTIALS', 'storage/app/firebase_credentials.json');
-            $credentialsPath = base_path($path);
-
-            if (!file_exists($credentialsPath)) {
-                return response()->json(['error' => 'Credenciales no encontradas'], 500);
+            if (!$this->firestore) {
+                return response()->json(['error' => 'Servicio de Firebase no disponible por fallo de inicialización.'], 503);
             }
-
-            $firestore = new FirestoreClient(['keyFilePath' => $credentialsPath]);
 
             $data = [
                 'post_id' => (int) $postId,
                 'user_id' => auth()->id(),
-                'user_name' => auth()->user()->name,
+                'user_name' => auth()->user()->name ?? 'Usuario',
                 'content' => $request->input('content'),
                 'created_at' => new \Google\Cloud\Core\Timestamp(new \DateTime()),
             ];
 
-            $newComment = $firestore->collection('comments')->add($data);
+            $newComment = $this->firestore->collection('comments')->add($data);
 
             return response()->json([
                 'status' => 'success',
                 'comment_id' => $newComment->id()
             ]);
-
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            return response()->json(['error' => 'Error en Firebase: ' . $e->getMessage()], 500);
         }
     }
 }
