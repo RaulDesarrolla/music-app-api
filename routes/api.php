@@ -5,7 +5,7 @@ use App\Http\Controllers\SpotifyController;
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\AdminController; 
+use App\Http\Controllers\AdminController;
 
 /*
 |--------------------------------------------------------------------------
@@ -21,6 +21,8 @@ Route::post('/register', [RegisteredUserController::class, 'store']);
 // 🔥 RUTAS DE OAUTH DE SPOTIFY (Tienen que ser públicas para que funcione el flujo)
 Route::get('/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');
 
+Route::post('/admin/posts/approve', [AdminController::class, 'approvePost']);
+Route::post('/admin/posts/delete', [AdminController::class, 'destroyPost']);
 
 /* --- RUTAS PROTEGIDAS (Sanctum) --- */
 Route::middleware('auth:sanctum')->group(function () {
@@ -35,14 +37,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/weekly-wrapped', [SpotifyController::class, 'getWeeklyWrapped']);
     });
 
-    Route::middleware('admin')->prefix('admin')->group(function () {
-        
-        // Endpoint para conseguir las métricas analíticas avanzadas y el listado de posts
+    Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
         Route::get('/dashboard-stats', [AdminController::class, 'getDashboardStats']);
-        
-        // Endpoint para moderar y eliminar un post problemático por su ID en tiempo real
-        Route::delete('/posts/{id}', [AdminController::class, 'deletePost']);
-        
     });
 
     // --- Social / Feed ---

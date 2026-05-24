@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->preventRequestForgery(except: [
             'api/login',
             'api/register',
+            'api/admin/posts/*',
             'sanctum/csrf-cookie',
         ]);
 

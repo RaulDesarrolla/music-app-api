@@ -2,14 +2,18 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use App\Models\User;
 use App\Models\Post;
+use App\Models\Report; // 💡 Modelo de reportes correctamente importado
+use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class AdminController extends Controller
 {
+    /**
+     * 📊 Obtiene todas las métricas del panel y la cola de moderación.
+     */
     public function getDashboardStats()
     {
         try {
@@ -19,16 +23,16 @@ class AdminController extends Controller
 
             // 2. TASA DE VINCULACIÓN DE SPOTIFY
             $connectedUsers = User::whereNotNull('spotify_id')->count();
-            $spotifyBindRate = $totalUsers > 0 
-                ? round(($connectedUsers / $totalUsers) * 100, 1) 
+            $spotifyBindRate = $totalUsers > 0
+                ? round(($connectedUsers / $totalUsers) * 100, 1)
                 : 0;
 
             // 3. ACTIVIDAD RECIENTE (Posts en las últimas 24 horas)
             $postsLast24h = Post::where('created_at', '>=', Carbon::now()->subDay())->count();
 
             // 4. PROMEDIO DE POSTS POR USUARIO
-            $avgPosts = $totalUsers > 0 
-                ? round($totalPosts / $totalUsers, 1) 
+            $avgPosts = $totalUsers > 0
+                ? round($totalPosts / $totalUsers, 1)
                 : 0;
 
             // 5. ARTISTA TOP (El más repetido en la tabla de posts)
@@ -39,41 +43,38 @@ class AdminController extends Controller
                 ->first();
             $topArtist = $topArtistRecord ? $topArtistRecord->artist_name : 'N/A';
 
-            // 6. TASA DE INTERACCIÓN (Corregida con tu estructura real)
-            // 💡 SOLUCIÓN: Al ser 'comment' el texto del post, medimos la interacción basándonos en la tabla 'likes'
+            // 6. TASA DE INTERACCIÓN
             $totalLikes = DB::table('likes')->count();
-
-            $engagementRate = $totalPosts > 0 
-                ? round(($totalLikes / $totalPosts) * 100, 1) 
+            $engagementRate = $totalPosts > 0
+                ? round(($totalLikes / $totalPosts) * 100, 1)
                 : 0;
 
             // 7. USUARIOS ACTIVOS HOY
             $activeUsersToday = User::where('last_activity_at', '>=', Carbon::today())->count();
 
             // 8. GÉNERO MUSICAL PREDOMINANTE
-            // 💡 SOLUCIÓN: Como la tabla posts no tiene la columna 'music_genre', fijamos un valor seguro para evitar errores SQL
             $topGenre = 'N/A';
 
-            // 9. REPORTES ACTIVOS
-            $activeReports = 0;
+            // 9. REPORTES ACTIVOS (Cuenta los registros de la tabla pivote)
+            $activeReports = Report::count();
 
             // 10. RANKING DE CANCIONES MÁS COMPARTIDAS
-            // Nota: Usamos 'track_name' para agrupar ya que tu tabla no usa un 'track_id' explícito en la migración aportada
             $topSongs = Post::select(
-                    'track_name', 
-                    'artist_name', 
-                    'image_url', 
-                    DB::raw('COUNT(*) as share_count')
-                )
+                'track_name',
+                'artist_name',
+                'image_url',
+                DB::raw('COUNT(*) as share_count')
+            )
                 ->whereNotNull('track_name')
                 ->groupBy('track_name', 'artist_name', 'image_url')
                 ->orderByDesc('share_count')
                 ->take(5)
                 ->get();
 
-            // 11. LISTADO DE PUBLICACIONES
-            $posts = Post::orderBy('created_at', 'desc')
-                ->take(10)
+            // 11. COLA DE MODERACIÓN (Filtra únicamente los posts que TIENEN reportes activos)
+            $posts = Post::whereHas('reports')
+                ->with('user')
+                ->orderBy('created_at', 'desc')
                 ->get();
 
             // RETORNO DE LA RESPUESTA EXITOSA EN FORMATO JSON
@@ -99,6 +100,93 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al generar las estadísticas del panel.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * 👍 APROBAR POST
+     * Desestima las denuncias asociadas a este post recibiendo el ID en el body JSON.
+     */
+    public function approvePost(Request $request)
+    {
+        try {
+            // Capturamos el post_id enviado en el cuerpo de la petición por React
+            $id = $request->input('post_id');
+
+            if (!$id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se proporcionó un ID de publicación válido.'
+                ], 400);
+            }
+
+            // Verificamos si existen reportes activos para este post
+            $hasReports = Report::where('post_id', $id)->exists();
+
+            if (!$hasReports) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El mensaje no tenía reportes activos o ya fue procesado.'
+                ], 404);
+            }
+
+            // Eliminamos todas las denuncias asociadas a este post_id
+            Report::where('post_id', $id)->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Mensaje aprobado con éxito. Se han removido las denuncias.'
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno al intentar aprobar el post.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * 👎 ELIMINAR POST
+     * Remueve el contenido por violar las normas recibiendo el ID en el body JSON.
+     */
+    public function destroyPost(Request $request)
+    {
+        try {
+            // Capturamos el post_id del cuerpo de la petición de la misma forma estructurada
+            $id = $request->input('post_id');
+
+            if (!$id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se proporcionó un ID de publicación válido.'
+                ], 400);
+            }
+
+            $post = Post::find($id);
+
+            if (!$post) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El mensaje ya no se encuentra en el sistema o ya fue eliminado.'
+                ], 404);
+            }
+
+            // Eliminación física (y remoción automática de reportes por el cascade en BD)
+            $post->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'El mensaje ha sido eliminado permanentemente de la plataforma.'
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno al intentar eliminar el post.',
                 'error' => $e->getMessage()
             ], 500);
         }
