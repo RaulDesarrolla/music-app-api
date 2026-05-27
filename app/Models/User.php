@@ -25,6 +25,7 @@ class User extends Authenticatable
         'expires_at',
         'theme',
         'notifications_enable',
+        'role'
     ];
 
     protected $hidden = [
@@ -39,6 +40,7 @@ class User extends Authenticatable
         'password' => 'hashed',
         'notifications_enable' => 'boolean',
         'expires_at' => 'datetime',
+        'last_activity_at' => 'datetime'
     ];
 
     // --- RELACIONES ---
