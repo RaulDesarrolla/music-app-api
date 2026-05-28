@@ -191,4 +191,59 @@ class AdminController extends Controller
             ], 500);
         }
     }
+
+    public function reportPost(Request $request)
+    {
+        try {
+            $postId = $request->input('post_id');
+            $reason = $request->input('reason', 'Contenido inapropiado'); // Razón por defecto si viene vacía
+
+            if (!$postId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se proporcionó un ID de publicación válido.'
+                ], 400);
+            }
+
+            // Validar que el post realmente exista
+            $postExists = Post::where('id', $postId)->exists();
+            if (!$postExists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La publicación que intentas reportar ya no existe.'
+                ], 404);
+            }
+
+            // Opcional: Evitar que un usuario reporte el mismo post varias veces
+            $alreadyReported = Report::where('post_id', $postId)
+                ->where('user_id', auth()->id())
+                ->exists();
+
+            if ($alreadyReported) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ya has reportado esta publicación anteriormente.'
+                ], 400);
+            }
+
+            // Guardar el reporte en la tabla "reports"
+            Report::create([
+                'post_id' => $postId,
+                'user_id' => auth()->id(), // Captura el ID del token de Sanctum
+                'reason' => $reason
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Publicación reportada con éxito. Será revisada por moderación.'
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al procesar el reporte.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

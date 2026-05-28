@@ -37,6 +37,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/users/*/follow',
         ]);
     })
+    ->withMiddleware(function (Middleware $middleware) {
+        $middleware->preventRequestForgery(except: [
+            'api/posts/report',
+        ]);
+    })
     ->withExceptions(function (Exceptions $exceptions) {
         $exceptions->shouldRenderJsonWhen(function (Request $request, Throwable $e) {
             if ($request->is('api/*')) {

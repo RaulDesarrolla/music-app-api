@@ -54,7 +54,7 @@ class PostController extends Controller
             ->get()
             ->map(function ($post) {
                 $post->created_at_human = $post->created_at ? $post->created_at->diffForHumans() : 'Ahora';
-               
+
                 $rating = DB::table('ratings')
                     ->where('rateable_id', $post->id)
                     ->where('rateable_type', 'App\Models\Post')
@@ -76,7 +76,8 @@ class PostController extends Controller
     public function store(Request $request)
     {
         $user = auth()->user();
-        if (!$user) return response()->json(['error' => 'No autorizado'], 401);
+        if (!$user)
+            return response()->json(['error' => 'No autorizado'], 401);
 
 
         try {
@@ -96,10 +97,10 @@ class PostController extends Controller
             ]);
 
 
-            if ($request->has('rating') && (int)$request->rating > 0) {
+            if ($request->has('rating') && (int) $request->rating > 0) {
                 DB::table('ratings')->insert([
                     'user_id' => $user->id,
-                    'rating' => (int)$request->rating,
+                    'rating' => (int) $request->rating,
                     'rateable_id' => $post->id,
                     'rateable_type' => 'App\Models\Post',
                     'created_at' => now(),
@@ -150,11 +151,12 @@ class PostController extends Controller
     public function getUserProfile($id)
     {
         $user = User::find($id);
-        if (!$user) return response()->json(['message' => 'Usuario no encontrado'], 404);
+        if (!$user)
+            return response()->json(['message' => 'Usuario no encontrado'], 404);
 
 
         $currentUser = auth()->user();
-       
+
         $followersCount = DB::table('follows')->where('followed_id', $id)->count();
         $followingCount = DB::table('follows')->where('follower_id', $id)->count();
         $isFollowing = $currentUser ? DB::table('follows')->where('follower_id', $currentUser->id)->where('followed_id', $id)->exists() : false;
@@ -179,7 +181,8 @@ class PostController extends Controller
     public function toggleFollow($id)
     {
         $user = auth()->user();
-        if ($user->id == $id) return response()->json(['error' => 'No puedes seguirte'], 400);
+        if ($user->id == $id)
+            return response()->json(['error' => 'No puedes seguirte'], 400);
 
 
         $result = $user->follows()->toggle($id);
@@ -194,5 +197,60 @@ class PostController extends Controller
         $search = $request->query('query');
         $users = User::where('name', 'LIKE', "%{$search}%")->select('id', 'name', 'email')->limit(10)->get();
         return response()->json(['results' => $users]);
+    }
+
+    /**
+     * Alternar Me gusta (Like / Unlike) en un Post
+     */
+    public function toggleLike($id)
+    {
+        // 📝 Esto escribirá en los logs de Laravel para saber si React se comunica con el backend
+        \Log::info("Intentando dar like al post ID: " . $id);
+        \Log::info("Usuario autenticado ID: " . auth()->id());
+
+        $user = auth()->user();
+        if (!$user) {
+            return response()->json(['error' => 'No autorizado'], 401);
+        }
+
+        $post = Post::find($id);
+        if (!$post) {
+            \Log::error("El post con ID " . $id . " no fue encontrado en la base de datos.");
+            return response()->json(['message' => 'El post no existe'], 404);
+        }
+
+        try {
+            $likeExist = DB::table('likes')
+                ->where('user_id', $user->id)
+                ->where('post_id', $id);
+
+            if ($likeExist->exists()) {
+                $likeExist->delete();
+                $isLiked = false;
+                $message = 'Me gusta eliminado.';
+            } else {
+                DB::table('likes')->insert([
+                    'user_id' => $user->id,
+                    'post_id' => $id,
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+                $isLiked = true;
+                $message = 'Me gusta agregado.';
+            }
+
+            $likesCount = DB::table('likes')->where('post_id', $id)->count();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => $message,
+                'is_liked' => $isLiked,
+                'likes_count' => $likesCount
+            ], 200);
+
+        } catch (\Exception $e) {
+            \Log::error("Error crítico en la base de datos al dar like: " . $e->getMessage());
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
     }
 }

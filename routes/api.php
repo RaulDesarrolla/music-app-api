@@ -32,7 +32,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // --- 📱 Red Social, Muro y Feed ---
     Route::get('/feed', [PostController::class, 'index']);
     Route::post('/posts', [PostController::class, 'store']);
+    Route::post('/posts/{id}/like', [PostController::class, 'toggleLike']);
     Route::post('/comments/{postId}', [PostController::class, 'storeComment']);
+    Route::post('/posts/report', [AdminController::class, 'reportPost']);
    
     // --- 👥 Usuarios, Perfiles y Seguimientos (Movidos a PostController) ---
     Route::get('/users/search', [PostController::class, 'searchProfiles']);
