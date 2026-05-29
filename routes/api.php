@@ -30,13 +30,46 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/posts/{id}/like', [PostController::class, 'toggleLike']);
     Route::post('/comments/{postId}', [PostController::class, 'storeComment']);
     Route::post('/posts/report', [AdminController::class, 'reportPost']);
-   
+
     // --- 👥 Usuarios, Perfiles y Seguimientos (Movidos a PostController) ---
     Route::get('/users/search', [PostController::class, 'searchProfiles']);
     Route::get('/users/{id}', [PostController::class, 'getUserProfile']);
     Route::get('/users/{id}/profile', [PostController::class, 'getUserProfile']);
     Route::post('/users/{id}/follow', [PostController::class, 'toggleFollow']);
-   
+    Route::post('/user/update', function (Request $request) {
+        $user = $request->user();
+
+        // 1. Validamos los datos recibidos
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'password' => 'sometimes|string|min:6',
+        ]);
+
+
+        // 2. Actualizamos el nombre si se envió
+        if ($request->filled('name')) {
+            $user->name = $request->name;
+        }
+
+
+        // 3. ACTUALIZAMOS LA CONTRASEÑA CORRECTAMENTE
+        // Es vital usar Hash::make para que Laravel pueda verificarla después
+        if ($request->filled('password')) {
+            $user->password = \Illuminate\Support\Facades\Hash::make($request->password);
+        }
+
+
+        // 4. Guardamos los cambios en la base de datos
+        $user->save();
+
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Perfil actualizado',
+            'new_name' => $user->name
+        ]);
+    });
+
     // Lista general de usuarios (La mantenemos aquí si quieres, o muévela a PostController también)
     Route::get('/users', function () {
         try {

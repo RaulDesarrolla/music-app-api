@@ -31,6 +31,9 @@ class PostController extends Controller
     /**
      * Feed (Red Social)
      */
+    /**
+     * Feed (Red Social) - Corregido para persistir Likes
+     */
     public function index()
     {
         $user = auth()->user();
@@ -38,33 +41,43 @@ class PostController extends Controller
             return response()->json(['status' => 'error', 'message' => 'No autorizado.'], 401);
         }
 
-
+        // Obtener los IDs de las personas a las que sigue el usuario
         $followingIds = DB::table('follows')
             ->where('follower_id', $user->id)
             ->pluck('followed_id')
             ->toArray();
 
-
+        // El feed mostrará los posts de sus seguidos y los suyos propios
         $userIdsForFeed = array_merge($followingIds, [$user->id]);
-
 
         $posts = Post::with('user:id,name')
             ->whereIn('user_id', $userIdsForFeed)
             ->latest()
             ->get()
-            ->map(function ($post) {
+            ->map(function ($post) use ($user) {
+                // 1. Formatear la fecha
                 $post->created_at_human = $post->created_at ? $post->created_at->diffForHumans() : 'Ahora';
 
+                // 2. Obtener la calificación (Estrellas)
                 $rating = DB::table('ratings')
                     ->where('rateable_id', $post->id)
                     ->where('rateable_type', 'App\Models\Post')
                     ->value('rating');
-
-
                 $post->rating = $rating ? (int) $rating : 0;
+
+                // 🌟 3. CALCULAR EL TOTAL DE LIKES (Persistencia en refresh)
+                $post->likes_count = DB::table('likes')
+                    ->where('post_id', $post->id)
+                    ->count();
+
+                // 🌟 4. VERIFICAR SI EL USUARIO ACTUAL YA LE DIO LIKE (Persistencia en refresh)
+                $post->is_liked = DB::table('likes')
+                    ->where('post_id', $post->id)
+                    ->where('user_id', $user->id)
+                    ->exists();
+
                 return $post;
             });
-
 
         return response()->json($posts, 200);
     }
