@@ -16,18 +16,13 @@ use App\Http\Controllers\PostController;
 |--------------------------------------------------------------------------
 */
 
-
 /* --- 🌍 RUTAS TOTALMENTE PÚBLICAS --- */
 Route::post('/login', [AuthenticatedSessionController::class, 'store']);
 Route::post('/register', [RegisteredUserController::class, 'store']);
 Route::get('/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');
 
-
-
-
 /* --- 🔒 RUTAS TOTALMENTE PROTEGIDAS (Solo usuarios logueados con Sanctum) --- */
 Route::middleware('auth:sanctum')->group(function () {
-
 
     // --- 📱 Red Social, Muro y Feed ---
     Route::get('/feed', [PostController::class, 'index']);

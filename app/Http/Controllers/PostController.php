@@ -76,9 +76,9 @@ class PostController extends Controller
     public function store(Request $request)
     {
         $user = auth()->user();
-        if (!$user)
+        if (!$user) {
             return response()->json(['error' => 'No autorizado'], 401);
-
+        }
 
         try {
             $request->validate([
@@ -86,9 +86,8 @@ class PostController extends Controller
                 'comment' => 'required|string',
             ]);
 
-
             $post = Post::create([
-                'user_id' => $user->id, // ✅ ID real del usuario logueado
+                'user_id' => $user->id,
                 'track_name' => $request->input('track_name'),
                 'artist_name' => $request->input('artist_name', 'Artista Recomendado'),
                 'album_name' => $request->input('album_name', $request->track_name),
@@ -96,11 +95,12 @@ class PostController extends Controller
                 'comment' => $request->comment,
             ]);
 
-
+            $ratingValue = 0;
             if ($request->has('rating') && (int) $request->rating > 0) {
+                $ratingValue = (int) $request->rating;
                 DB::table('ratings')->insert([
                     'user_id' => $user->id,
-                    'rating' => (int) $request->rating,
+                    'rating' => $ratingValue,
                     'rateable_id' => $post->id,
                     'rateable_type' => 'App\Models\Post',
                     'created_at' => now(),
@@ -108,10 +108,20 @@ class PostController extends Controller
                 ]);
             }
 
+            // 🌟 IMPORTANTE: Cargamos la relación del usuario para que React sepa quién publicó
+            $post->load('user:id,name');
 
+            // Formateamos las propiedades iniciales para que coincidan exactamente con la estructura de tu feed
+            $post->created_at_human = 'Ahora';
+            $post->rating = $ratingValue;
+            $post->likes_count = 0;
+            $post->is_liked = false;
+
+            // Cambiamos a 'status' => 'success' para estandarizar tus endpoints
             return response()->json(['status' => 'success', 'post' => $post], 201);
+
         } catch (\Exception $e) {
-            Log::error('Error en storePost: ' . $e->getMessage());
+            \Log::error('Error en storePost: ' . $e->getMessage());
             return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
         }
     }
