@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Post;
-use App\Models\Report; // 💡 Modelo de reportes correctamente importado
+use App\Models\Report; 
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -12,37 +12,29 @@ use Illuminate\Support\Facades\Http;
 
 class AdminController extends Controller
 {
-    /**
-     * 📊 Obtiene todas las métricas del panel y la cola de moderación.
-     */
+
     public function getDashboardStats()
     {
         try {
-            // 1. MÉTRICAS BASE (Usuarios y Posts)
             $totalUsers = User::count();
             $totalPosts = Post::count();
 
-            // 2. TASA DE VINCULACIÓN DE SPOTIFY
             $connectedUsers = User::whereNotNull('spotify_id')->count();
             $spotifyBindRate = $totalUsers > 0
                 ? round(($connectedUsers / $totalUsers) * 100, 1)
                 : 0;
 
-            // 3. ACTIVIDAD RECIENTE (Posts en las últimas 24 horas)
             $postsLast24h = Post::where('created_at', '>=', Carbon::now()->subDay())->count();
 
-            // 4. PROMEDIO DE POSTS POR USUARIO
             $avgPosts = $totalUsers > 0
                 ? round($totalPosts / $totalUsers, 1)
                 : 0;
 
-            // 5. TASA DE INTERACCIÓN
             $totalLikes = DB::table('likes')->count();
             $engagementRate = $totalPosts > 0
                 ? round(($totalLikes / $totalPosts) * 100, 1)
                 : 0;
 
-            // 6. USUARIOS ACTIVOS HOY (Usando la tabla 'sessions')
             $startOfTodayTimestamp = Carbon::today()->timestamp;
             $activeUsersToday = DB::table('sessions')
                 ->whereNotNull('user_id')
@@ -58,7 +50,6 @@ class AdminController extends Controller
                 })->count();
             }
 
-            // 7. GÉNERO MUSICAL PREDOMINANTE
             $topGenre = 'N/A';
             $samplePosts = Post::select('album_name', 'track_name')
                 ->whereNotNull('album_name')
@@ -98,10 +89,8 @@ class AdminController extends Controller
                 }
             }
 
-            // 8. REPORTES ACTIVOS
             $activeReports = Report::count();
 
-            // 9. RANKING DE CANCIONES MÁS COMPARTIDAS
             $topSongs = Post::select(
                 'track_name',
                 'artist_name',
@@ -114,13 +103,11 @@ class AdminController extends Controller
                 ->take(5)
                 ->get();
 
-            // 10. COLA DE MODERACIÓN
             $posts = Post::whereHas('reports')
                 ->with('user')
                 ->orderBy('created_at', 'desc')
                 ->get();
 
-            // RETORNO EN FORMATO JSON (Clave top_artist eliminada)
             return response()->json([
                 'success' => true,
                 'metrics' => [
@@ -147,14 +134,9 @@ class AdminController extends Controller
         }
     }
 
-    /**
-     * 👍 APROBAR POST
-     * Desestima las denuncias asociadas a este post recibiendo el ID en el body JSON.
-     */
     public function approvePost(Request $request)
     {
         try {
-            // Capturamos el post_id enviado en el cuerpo de la petición por React
             $id = $request->input('post_id');
 
             if (!$id) {
@@ -164,7 +146,6 @@ class AdminController extends Controller
                 ], 400);
             }
 
-            // Verificamos si existen reportes activos para este post
             $hasReports = Report::where('post_id', $id)->exists();
 
             if (!$hasReports) {
@@ -174,7 +155,6 @@ class AdminController extends Controller
                 ], 404);
             }
 
-            // Eliminamos todas las denuncias asociadas a este post_id
             Report::where('post_id', $id)->delete();
 
             return response()->json([
@@ -191,14 +171,9 @@ class AdminController extends Controller
         }
     }
 
-    /**
-     * 👎 ELIMINAR POST
-     * Remueve el contenido por violar las normas recibiendo el ID en el body JSON.
-     */
     public function destroyPost(Request $request)
     {
         try {
-            // Capturamos el post_id del cuerpo de la petición de la misma forma estructurada
             $id = $request->input('post_id');
 
             if (!$id) {
@@ -217,7 +192,6 @@ class AdminController extends Controller
                 ], 404);
             }
 
-            // Eliminación física (y remoción automática de reportes por el cascade en BD)
             $post->delete();
 
             return response()->json([
@@ -238,7 +212,7 @@ class AdminController extends Controller
     {
         try {
             $postId = $request->input('post_id');
-            $reason = $request->input('reason', 'Contenido inapropiado'); // Razón por defecto si viene vacía
+            $reason = $request->input('reason', 'Contenido inapropiado'); 
 
             if (!$postId) {
                 return response()->json([
@@ -247,7 +221,6 @@ class AdminController extends Controller
                 ], 400);
             }
 
-            // Validar que el post realmente exista
             $postExists = Post::where('id', $postId)->exists();
             if (!$postExists) {
                 return response()->json([
@@ -256,7 +229,6 @@ class AdminController extends Controller
                 ], 404);
             }
 
-            // Opcional: Evitar que un usuario reporte el mismo post varias veces
             $alreadyReported = Report::where('post_id', $postId)
                 ->where('user_id', auth()->id())
                 ->exists();
@@ -268,10 +240,9 @@ class AdminController extends Controller
                 ], 400);
             }
 
-            // Guardar el reporte en la tabla "reports"
             Report::create([
                 'post_id' => $postId,
-                'user_id' => auth()->id(), // Captura el ID del token de Sanctum
+                'user_id' => auth()->id(),
                 'reason' => $reason
             ]);
 

@@ -10,16 +10,11 @@ return new class extends Migration
     {
         Schema::create('spotify_tokens', function (Blueprint $table) {
             $table->id();
-            // Relación con la tabla users
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            
-            // Campos para los tokens de Spotify
             $table->text('access_token');
             $table->text('refresh_token')->nullable();
-            
-            // Metadatos del token
-            $table->integer('expires_in'); // Duración en segundos
-            $table->timestamp('expires_at'); // Momento exacto de expiración
+            $table->integer('expires_in'); 
+            $table->timestamp('expires_at'); 
             
             $table->timestamps();
         });

@@ -21,7 +21,6 @@ class SpotifyService
             'http://localhost/callback'
         );
 
-        // Get an access token
         try {
             $session->requestCredentialsToken();
             $accessToken = $session->getAccessToken();

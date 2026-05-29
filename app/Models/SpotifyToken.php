@@ -9,7 +9,6 @@ class SpotifyToken extends Model
 {
     use HasFactory;
 
-    // Campos que permitimos guardar mediante código
     protected $fillable = [
         'user_id',
         'access_token',
@@ -18,14 +17,10 @@ class SpotifyToken extends Model
         'expires_at',
     ];
 
-    // Indica que los campos de fecha deben ser tratados como objetos Carbon (fechas)
     protected $casts = [
         'expires_at' => 'datetime',
     ];
 
-    /**
-     * Relación inversa: Un token pertenece a un usuario.
-     */
     public function user()
     {
         return $this->belongsTo(User::class);

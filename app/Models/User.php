@@ -7,12 +7,10 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-// 1. Importamos el trait de Sanctum para usar tokens
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    // 2. Añadimos HasApiTokens aquí
     use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [
@@ -43,8 +41,6 @@ class User extends Authenticatable
         'last_activity_at' => 'datetime'
     ];
 
-    // --- RELACIONES ---
-
     public function posts(): HasMany
     {
         return $this->hasMany(Post::class);
@@ -61,18 +57,12 @@ class User extends Authenticatable
             ->withPivot('is_admin', 'joined_at');
     }
 
-    /**
-     * 3. Relación: Usuarios a los que SIGUE este usuario.
-     */
     public function follows(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'follows', 'follower_id', 'followed_id')
             ->withTimestamps();
     }
 
-    /**
-     * 4. Relación: Usuarios que SIGUEN a este usuario.
-     */
     public function followers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'follows', 'followed_id', 'follower_id')
@@ -82,7 +72,6 @@ class User extends Authenticatable
 
     public function spotifyToken()
     {
-        // Un usuario tiene un registro de token de Spotify
         return $this->hasOne(SpotifyToken::class);
     }
 }

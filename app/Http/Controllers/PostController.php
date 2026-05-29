@@ -15,9 +15,6 @@ class PostController extends Controller
 {
     protected $firestore;
 
-    /**
-     * Constructor blindado contra fallos de inicialización de Firebase
-     */
     public function __construct(FirestoreClient $firestore = null)
     {
         try {
@@ -27,13 +24,6 @@ class PostController extends Controller
         }
     }
 
-
-    /**
-     * Feed (Red Social)
-     */
-    /**
-     * Feed (Red Social) - Corregido para persistir Likes
-     */
     public function index()
     {
         $user = auth()->user();
@@ -41,13 +31,11 @@ class PostController extends Controller
             return response()->json(['status' => 'error', 'message' => 'No autorizado.'], 401);
         }
 
-        // Obtener los IDs de las personas a las que sigue el usuario
         $followingIds = DB::table('follows')
             ->where('follower_id', $user->id)
             ->pluck('followed_id')
             ->toArray();
 
-        // El feed mostrará los posts de sus seguidos y los suyos propios
         $userIdsForFeed = array_merge($followingIds, [$user->id]);
 
         $posts = Post::with('user:id,name')
@@ -55,22 +43,18 @@ class PostController extends Controller
             ->latest()
             ->get()
             ->map(function ($post) use ($user) {
-                // 1. Formatear la fecha
                 $post->created_at_human = $post->created_at ? $post->created_at->diffForHumans() : 'Ahora';
 
-                // 2. Obtener la calificación (Estrellas)
                 $rating = DB::table('ratings')
                     ->where('rateable_id', $post->id)
                     ->where('rateable_type', 'App\Models\Post')
                     ->value('rating');
                 $post->rating = $rating ? (int) $rating : 0;
 
-                // 🌟 3. CALCULAR EL TOTAL DE LIKES (Persistencia en refresh)
                 $post->likes_count = DB::table('likes')
                     ->where('post_id', $post->id)
                     ->count();
 
-                // 🌟 4. VERIFICAR SI EL USUARIO ACTUAL YA LE DIO LIKE (Persistencia en refresh)
                 $post->is_liked = DB::table('likes')
                     ->where('post_id', $post->id)
                     ->where('user_id', $user->id)
@@ -83,9 +67,6 @@ class PostController extends Controller
     }
 
 
-    /**
-     * Crear un nuevo post
-     */
     public function store(Request $request)
     {
         $user = auth()->user();
@@ -120,17 +101,12 @@ class PostController extends Controller
                     'updated_at' => now(),
                 ]);
             }
-
-            // 🌟 IMPORTANTE: Cargamos la relación del usuario para que React sepa quién publicó
             $post->load('user:id,name');
-
-            // Formateamos las propiedades iniciales para que coincidan exactamente con la estructura de tu feed
             $post->created_at_human = 'Ahora';
             $post->rating = $ratingValue;
             $post->likes_count = 0;
             $post->is_liked = false;
 
-            // Cambiamos a 'status' => 'success' para estandarizar tus endpoints
             return response()->json(['status' => 'success', 'post' => $post], 201);
 
         } catch (\Exception $e) {
@@ -140,9 +116,6 @@ class PostController extends Controller
     }
 
 
-    /**
-     * Store Comment (Firebase)
-     */
     public function storeComment(Request $request, $postId)
     {
         $request->validate(['content' => 'required|string|max:500']);
@@ -168,9 +141,6 @@ class PostController extends Controller
         return response()->json(['status' => 'success', 'comment_id' => $newComment->id()]);
     }
 
-    /**
-     * Perfil de usuario
-     */
     public function getUserProfile($id)
     {
         $user = User::find($id);
@@ -222,12 +192,8 @@ class PostController extends Controller
         return response()->json(['results' => $users]);
     }
 
-    /**
-     * Alternar Me gusta (Like / Unlike) en un Post
-     */
     public function toggleLike($id)
     {
-        // 📝 Esto escribirá en los logs de Laravel para saber si React se comunica con el backend
         \Log::info("Intentando dar like al post ID: " . $id);
         \Log::info("Usuario autenticado ID: " . auth()->id());
 

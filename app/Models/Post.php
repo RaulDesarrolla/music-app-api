@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Post extends Model
 {
-    use HasFactory; // Eliminamos "use BelongsToMany" de aquí, ya que no es un Trait.
+    use HasFactory;
 
     protected $fillable = [
         'user_id',
@@ -20,17 +20,11 @@ class Post extends Model
         'comment',
     ];
 
-    /**
-     * Relación: El post pertenece a un creador.
-     */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * Relación: Los usuarios que han dado "Like" a este post.
-     */
     public function likes(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'likes')->withTimestamps();
