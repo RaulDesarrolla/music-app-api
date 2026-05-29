@@ -100,7 +100,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
     // --- 👑 Panel de Administración ---
-    Route::prefix('admin')->group(function () {
+    Route::prefix('admin')->middleware('admin')->group(function () {
         Route::get('/dashboard-stats', [AdminController::class, 'getDashboardStats']);
         Route::post('/posts/approve', [AdminController::class, 'approvePost']);
         Route::post('/posts/delete', [AdminController::class, 'destroyPost']);

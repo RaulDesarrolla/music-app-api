@@ -8,6 +8,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 
 class AdminController extends Controller
 {
@@ -35,30 +36,72 @@ class AdminController extends Controller
                 ? round($totalPosts / $totalUsers, 1)
                 : 0;
 
-            // 5. ARTISTA TOP (El más repetido en la tabla de posts)
-            $topArtistRecord = Post::whereNotNull('artist_name')
-                ->select('artist_name', DB::raw('count(*) as total'))
-                ->groupBy('artist_name')
-                ->orderByDesc('total')
-                ->first();
-            $topArtist = $topArtistRecord ? $topArtistRecord->artist_name : 'N/A';
-
-            // 6. TASA DE INTERACCIÓN
+            // 5. TASA DE INTERACCIÓN
             $totalLikes = DB::table('likes')->count();
             $engagementRate = $totalPosts > 0
                 ? round(($totalLikes / $totalPosts) * 100, 1)
                 : 0;
 
-            // 7. USUARIOS ACTIVOS HOY
-            $activeUsersToday = User::where('last_activity_at', '>=', Carbon::today())->count();
+            // 6. USUARIOS ACTIVOS HOY (Usando la tabla 'sessions')
+            $startOfTodayTimestamp = Carbon::today()->timestamp;
+            $activeUsersToday = DB::table('sessions')
+                ->whereNotNull('user_id')
+                ->where('last_activity', '>=', $startOfTodayTimestamp)
+                ->distinct('user_id')
+                ->count('user_id');
 
-            // 8. GÉNERO MUSICAL PREDOMINANTE
+            if ($activeUsersToday === 0) {
+                $activeUsersToday = User::whereIn('id', function ($query) {
+                    $query->select('user_id')
+                        ->from('posts')
+                        ->where('created_at', '>=', Carbon::today());
+                })->count();
+            }
+
+            // 7. GÉNERO MUSICAL PREDOMINANTE
             $topGenre = 'N/A';
+            $samplePosts = Post::select('album_name', 'track_name')
+                ->whereNotNull('album_name')
+                ->orderByDesc('created_at')
+                ->take(50)
+                ->get();
 
-            // 9. REPORTES ACTIVOS (Cuenta los registros de la tabla pivote)
+            if ($samplePosts->isNotEmpty()) {
+                $genreKeywords = [
+                    'Pop' => ['pop', 'hits', 'love', 'dance', 'star', 'music'],
+                    'Rock' => ['rock', 'metal', 'guitar', 'live', 'stone', 'dead'],
+                    'Urban/Reggaeton' => ['urban', 'reggaeton', 'remix', 'trap', 'rap', 'hip hop', 'latin', 'el', 'la', 'los'],
+                    'Indie/Alternative' => ['indie', 'alternative', 'acoustic', 'folk', 'session'],
+                    'Electronic' => ['electronic', 'house', 'techno', 'edm', 'dj', 'mix'],
+                ];
+
+                $genreCounts = array_fill_keys(array_keys($genreKeywords), 0);
+
+                foreach ($samplePosts as $post) {
+                    $searchString = strtolower($post->album_name . ' ' . $post->track_name);
+                    foreach ($genreKeywords as $genre => $keywords) {
+                        foreach ($keywords as $keyword) {
+                            if (str_contains($searchString, $keyword)) {
+                                $genreCounts[$genre]++;
+                            }
+                        }
+                    }
+                }
+
+                arsort($genreCounts);
+                $detectedGenre = key($genreCounts);
+
+                if ($genreCounts[$detectedGenre] > 0) {
+                    $topGenre = $detectedGenre;
+                } else {
+                    $topGenre = 'Variado';
+                }
+            }
+
+            // 8. REPORTES ACTIVOS
             $activeReports = Report::count();
 
-            // 10. RANKING DE CANCIONES MÁS COMPARTIDAS
+            // 9. RANKING DE CANCIONES MÁS COMPARTIDAS
             $topSongs = Post::select(
                 'track_name',
                 'artist_name',
@@ -71,13 +114,13 @@ class AdminController extends Controller
                 ->take(5)
                 ->get();
 
-            // 11. COLA DE MODERACIÓN (Filtra únicamente los posts que TIENEN reportes activos)
+            // 10. COLA DE MODERACIÓN
             $posts = Post::whereHas('reports')
                 ->with('user')
                 ->orderBy('created_at', 'desc')
                 ->get();
 
-            // RETORNO DE LA RESPUESTA EXITOSA EN FORMATO JSON
+            // RETORNO EN FORMATO JSON (Clave top_artist eliminada)
             return response()->json([
                 'success' => true,
                 'metrics' => [
@@ -86,7 +129,6 @@ class AdminController extends Controller
                     'spotify_bind_rate' => $spotifyBindRate,
                     'posts_last_24h' => $postsLast24h,
                     'average_posts_per_user' => $avgPosts,
-                    'top_artist' => $topArtist,
                     'engagement_rate' => $engagementRate,
                     'active_users_today' => $activeUsersToday,
                     'top_genre' => $topGenre,
